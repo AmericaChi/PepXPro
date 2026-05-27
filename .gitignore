@@ -1,0 +1,20 @@
+# Large generated datasets
+pdb_cache/
+fixed_cif/
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Generated samples
+samples/
+sample.tsv
+
+#Claude
+.claude/
