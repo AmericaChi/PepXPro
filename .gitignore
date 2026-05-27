@@ -1,9 +1,12 @@
 # Large generated datasets
 pdb_cache/
-fixed_cif/
+**/fixed_cif/
+**/cif/
+**/pdb/
 
 # Logs
 *.log
+**/logs/
 
 # Python
 __pycache__/
@@ -13,8 +16,12 @@ __pycache__/
 .DS_Store
 
 # Generated samples
-samples/
+**/samples/
 sample.tsv
 
 #Claude
 .claude/
+
+# Outputs
+outputs/
+**/outputs/

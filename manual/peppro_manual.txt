@@ -1,0 +1,120 @@
+PepPro Manual
+=============
+Modular framework for generating peptide-protein benchmark datasets from PDBbind.
+
+REPOSITORY LAYOUT
+-----------------
+scrape_pdb_bind/   Raw pipeline: download, filter, prepare CIFs from PDBbind. Do not modify.
+gen_sample/        Filtering, sampling, and export pipeline. Active development.
+manual/            This file.
+
+INPUT FILES (from scrape_pdb_bind/)
+------------------------------------
+summary.tsv            Main input. Columns: pdb_id, receptor, peptide, dG_kcal_mol, binding_type
+                       receptor format: "AB:440"  (chain IDs + total residue count)
+                       peptide  format: "C:8"     (chain ID  + residue count)
+filtered_systems.tsv   Required for --max-added and --max-receptor-added.
+fixed_cif/             Source CIF structures (heavy atoms + experimental H where deposited).
+
+OUTPUT (gen_sample/outputs/run_XX/)
+------------------------------------
+sample.tsv             Selected entries (same columns as summary.tsv).
+run_config.json        All parameters used: mode, filters, sampling method, seed, paths.
+cif/  or  pdb/         Structure files (only if --link-cifs, --copy-cifs, or --protonate).
+
+
+===========================================================================
+SCRIPT: gen_sample/scripts/gen_sample.py
+===========================================================================
+
+MODES  (mutually exclusive, one required)
+------------------------------------------
+--sample N             Sample N entries from the filtered pool.
+--no-sample            Take the full filtered pool without sampling.
+--dry-run              Print pool statistics after filtering. No output written.
+--pick PDB_ID          Extract one system by PDB ID. Bypasses all filters and sampling.
+
+SAMPLING  (only with --sample)
+-------------------------------
+--sampling METHOD      Sampling algorithm. Choices:
+                         diverse        6x6 quantile grid on (dG x peptide_length). Default.
+                         kennard-stone  Maximizes minimum pairwise distance in feature space.
+                                        Deterministic. Covers extremes of the distribution.
+                         kde            Inverse density sampling on dG. Favors underrepresented
+                                        affinity regions (strong/weak binders).
+--seed N               Random seed for reproducibility (affects diverse and kde).
+
+FILTERS  (applied before sampling; all optional)
+-------------------------------------------------
+--single-chain         Keep only single receptor-chain entries. Default: ON.
+--no-single-chain      Disable single-chain filter (allow multi-chain receptors).
+--min-receptor N       Minimum receptor residue count.
+--max-receptor N       Maximum receptor residue count.
+--min-peptide N        Minimum peptide residue count.
+--max-peptide N        Maximum peptide residue count.
+--min-dg F             Minimum dG in kcal/mol  (e.g. --min-dg -20).
+--max-dg F             Maximum dG in kcal/mol  (e.g. --max-dg -5).
+--binding-type TYPE    Filter by measurement type. Choices: kd  ki  both. Default: both.
+--max-added N          Max residues PDBFixer added to peptide. Requires filtered_systems.tsv.
+--max-receptor-added N Max residues PDBFixer added to receptor. Requires filtered_systems.tsv.
+--exclude FILE         Path to a file with one pdb_id per line to exclude from pool.
+
+EXPORT  (all optional; can be combined)
+----------------------------------------
+--link-cifs            Symlink structure files into run_XX/cif/ (or pdb/).
+--copy-cifs            Copy structure files into run_XX/cif/ (or pdb/).
+--protonate            Add missing hydrogens and protonate at given pH. Implies file copy.
+--ph F                 pH for protonation. Default: 7.0. Only used with --protonate.
+                       Uses PDBFixer/OpenMM AMBER14 templates. Existing H atoms are preserved;
+                       only missing H are added. Residue names change for pH-dependent states
+                       (HID/HIE/HIP for histidine, ASH, GLH, LYN where applicable).
+--format FMT           Output structure format. Choices: cif  pdb. Default: cif.
+                       PDB format triggers CIF->PDB conversion via OpenMM.
+
+USAGE EXAMPLES
+--------------
+python gen_sample.py --sample 20
+python gen_sample.py --sample 20 --no-single-chain
+python gen_sample.py --sample 20 --sampling kennard-stone --seed 42
+python gen_sample.py --sample 20 --sampling kde
+python gen_sample.py --sample 20 --min-peptide 5 --max-peptide 15 --max-receptor 300
+python gen_sample.py --sample 20 --min-dg -15 --max-dg -6 --binding-type kd
+python gen_sample.py --sample 20 --max-added 3 --max-receptor-added 10
+python gen_sample.py --sample 20 --exclude bad_ids.txt
+python gen_sample.py --sample 20 --link-cifs
+python gen_sample.py --sample 20 --copy-cifs --format pdb
+python gen_sample.py --sample 20 --protonate --ph 7.4 --format pdb
+python gen_sample.py --no-sample --link-cifs
+python gen_sample.py --dry-run --max-peptide 15 --binding-type kd
+python gen_sample.py --pick 1abc
+python gen_sample.py --pick 1abc --protonate --ph 6.5 --format pdb
+
+
+===========================================================================
+SCRIPT: gen_sample/scripts/benchmark_sampling.py
+===========================================================================
+Compares all three sampling methods visually on the same filtered pool.
+Produces a single figure: scatter (dG x peptide_length) per method.
+Output: gen_sample/outputs/plots/sampling_benchmark.png
+
+FLAGS
+-----
+--n N      Number of entries to sample per method. Default: 20.
+--seed N   Random seed (applied to diverse and kde). Default: none.
+
+USAGE EXAMPLES
+--------------
+python benchmark_sampling.py
+python benchmark_sampling.py --n 30
+python benchmark_sampling.py --n 20 --seed 42
+
+
+===========================================================================
+NOTES
+===========================================================================
+- All scripts must be run from gen_sample/scripts/ or with that directory in sys.path.
+- Conda environment: conda activate peppro
+- Large output files (CIFs, PDBs) are not tracked by git.
+- run_config.json records every parameter used, ensuring full reproducibility.
+- --protonate does not strip existing hydrogens; it only fills missing ones.
+- Experimental pH is not considered; --ph applies uniformly to all structures.
