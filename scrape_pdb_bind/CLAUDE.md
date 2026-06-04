@@ -11,7 +11,7 @@ conda  activate peppro
 
 To create the environment from scratch:
 ```bash
-conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy pymol-open-source
+conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn pymol-open-source
 ```
 
 Key packages and their roles:

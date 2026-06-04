@@ -3,6 +3,14 @@
 Modular pipeline for filtering, sampling, and exporting peptide–protein benchmark datasets
 from the outputs of `scrape_pdb_bind`.
 
+## Environment
+
+```bash
+conda activate peppro
+```
+
+`isolation-forest` and `cluster` sampling methods require `scikit-learn` (included in the env above).
+
 ## Structure
 
 ```

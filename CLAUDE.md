@@ -49,6 +49,18 @@ outputs/
 
 Large generated files should not be tracked by git.
 
+## Environment
+
+Activate before running any scripts:
+```bash
+conda activate peppro
+```
+
+To create from scratch:
+```bash
+conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn pymol-open-source
+```
+
 ## Coding guidelines
 
 - Prefer modular scripts over monolithic scripts
