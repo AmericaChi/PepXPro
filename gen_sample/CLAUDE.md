@@ -61,11 +61,19 @@ python gen_sample.py --sample 20 --exclude bad_ids.txt --copy-cifs
 
 ## Sampling methods
 
-| Method | Description |
-|---|---|
-| `diverse` (default) | 6×6 quantile-bin grid on ΔG × peptide length |
-| `kennard-stone` | Maximizes minimum pairwise distance in (ΔG, peptide_length) space |
-| `kde` | Inverse density sampling — favors underrepresented ΔG regions |
+| Method | Dims | Description |
+|---|---|---|
+| `stratified` (default) | 1D or 2D | Quantile-bin grid. 1D: n bins. 2D: 6×6 grid. Default: dG × pep_len |
+| `kennard-stone` | N-D | Maximizes minimum pairwise Euclidean distance in feature space |
+| `kde` | 1D only | Inverse KDE density — favors tail/underrepresented affinity regions |
+| `isolation-forest` | N-D | Weights by isolation forest anomaly score — favors outliers in N-D space |
+| `cluster` | N-D | K-means (k=n); selects entry nearest each centroid — uniform coverage |
+
+Requires `scikit-learn` for `isolation-forest` and `cluster`.
+
+Use `--dims` to select dimensions: `dg`, `pep_len`, `rec_len`, `n_rec_chains`.
+Default: `dg pep_len`. KDE always uses only the first dim.
+Plot labels include effective dimensionality: `stratified-2D`, `kde-1D`, `cluster-2D`, etc.
 
 ## Planned modules
 

@@ -37,12 +37,23 @@ MODES  (mutually exclusive, one required)
 SAMPLING  (only with --sample)
 -------------------------------
 --sampling METHOD      Sampling algorithm. Choices:
-                         diverse        6x6 quantile grid on (dG x peptide_length). Default.
-                         kennard-stone  Maximizes minimum pairwise distance in feature space.
-                                        Deterministic. Covers extremes of the distribution.
-                         kde            Inverse density sampling on dG. Favors underrepresented
-                                        affinity regions (strong/weak binders).
---seed N               Random seed for reproducibility (affects diverse and kde).
+                         stratified       Quantile-bin grid. 1D: n bins; 2D: 6x6 grid. Default.
+                         kennard-stone    Maximizes minimum pairwise Euclidean distance in
+                                          the chosen feature space (N-dimensional).
+                         kde              Inverse KDE density sampling (always 1D). Favors
+                                          underrepresented affinity regions (strong/weak).
+                         isolation-forest Weights by isolation forest anomaly score. Favors
+                                          outliers in N-D feature space. Requires scikit-learn.
+                         cluster          K-means (k=n); selects entry nearest each cluster
+                                          centroid. Uniform coverage, deterministic per seed.
+                                          Requires scikit-learn.
+                       Plot labels include effective dimensionality: stratified-2D, kde-1D, etc.
+--dims DIM [DIM ...]   Dimensions for sampling. Available: dg, pep_len, rec_len, n_rec_chains.
+                       Default: dg pep_len. KDE always uses only the first dim.
+                       Examples: --dims dg          (1D stratified or kde)
+                                 --dims dg pep_len  (2D, default)
+                                 --dims dg rec_len  (2D on dG x receptor length)
+--seed N               Random seed for reproducibility (affects stratified and kde).
 
 FILTERS  (applied before sampling; all optional)
 -------------------------------------------------
@@ -77,6 +88,11 @@ python gen_sample.py --sample 20
 python gen_sample.py --sample 20 --no-single-chain
 python gen_sample.py --sample 20 --sampling kennard-stone --seed 42
 python gen_sample.py --sample 20 --sampling kde
+python gen_sample.py --sample 20 --dims dg
+python gen_sample.py --sample 20 --sampling kennard-stone --dims dg rec_len
+python gen_sample.py --sample 20 --sampling isolation-forest
+python gen_sample.py --sample 20 --sampling isolation-forest --dims dg pep_len rec_len
+python gen_sample.py --sample 20 --sampling cluster --seed 42
 python gen_sample.py --sample 20 --min-peptide 5 --max-peptide 15 --max-receptor 300
 python gen_sample.py --sample 20 --min-dg -15 --max-dg -6 --binding-type kd
 python gen_sample.py --sample 20 --max-added 3 --max-receptor-added 10

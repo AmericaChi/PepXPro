@@ -30,7 +30,7 @@ sys.path.insert(0, str(_root))
 
 from modules.utils import load_tsv, enrich_rows
 from modules.filters import apply_all_filters
-from modules.sampling import run_sampling, SAMPLING_METHODS
+from modules.sampling import run_sampling, SAMPLING_METHODS, method_label, AVAILABLE_DIMS
 from modules.export import next_run_dir, write_sample, save_run_config, link_cifs, protonate_cifs
 
 # ---------------------------------------------------------------------------
@@ -106,8 +106,9 @@ def build_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Mode (mutually exclusive)
-    mode = p.add_mutually_exclusive_group(required=True)
+    # ---- Modes (mutually exclusive) ----
+    mode_grp = p.add_argument_group("modes (one required)")
+    mode = mode_grp.add_mutually_exclusive_group(required=True)
     mode.add_argument("--sample", metavar="N", type=int,
                       help="Sample N entries from the filtered pool.")
     mode.add_argument("--no-sample", action="store_true",
@@ -117,48 +118,54 @@ def build_parser():
     mode.add_argument("--pick", metavar="PDB_ID",
                       help="Extract a single system by PDB ID, bypassing all filters and sampling.")
 
-    # Sampling options
-    p.add_argument("--sampling", choices=list(SAMPLING_METHODS), default="diverse",
-                   metavar="METHOD",
-                   help="Sampling algorithm: diverse (default), kennard-stone, kde.")
-    p.add_argument("--seed", type=int, default=None,
-                   help="Random seed for reproducibility.")
+    # ---- Sampling ----
+    samp_grp = p.add_argument_group("sampling  (only with --sample)")
+    samp_grp.add_argument("--sampling", choices=list(SAMPLING_METHODS), default="stratified",
+                          metavar="METHOD",
+                          help="Algorithm: stratified (default), kennard-stone, kde.")
+    samp_grp.add_argument("--dims", nargs="+", default=["dg", "pep_len"], metavar="DIM",
+                          help=f"Feature dimensions. Available: {', '.join(AVAILABLE_DIMS)}. "
+                               "Default: dg pep_len. kde always uses only the first dim.")
+    samp_grp.add_argument("--seed", type=int, default=None,
+                          help="Random seed for reproducibility.")
 
-    # Filters
-    p.add_argument("--single-chain", action=argparse.BooleanOptionalAction, default=True,
-                   help="Keep only entries with a single receptor chain (default: on). Use --no-single-chain to include multi-chain receptors.")
-    p.add_argument("--min-receptor", type=int, metavar="N",
-                   help="Minimum receptor residue count.")
-    p.add_argument("--max-receptor", type=int, metavar="N",
-                   help="Maximum receptor residue count.")
-    p.add_argument("--min-peptide", type=int, metavar="N",
-                   help="Minimum peptide residue count.")
-    p.add_argument("--max-peptide", type=int, metavar="N",
-                   help="Maximum peptide residue count.")
-    p.add_argument("--min-dg", type=float, metavar="F",
-                   help="Minimum dG (kcal/mol), e.g. --min-dg -20.")
-    p.add_argument("--max-dg", type=float, metavar="F",
-                   help="Maximum dG (kcal/mol), e.g. --max-dg -5.")
-    p.add_argument("--binding-type", choices=["kd", "ki", "both"], default="both",
-                   help="Filter by binding measurement type (default: both).")
-    p.add_argument("--max-added", type=int, metavar="N",
-                   help="Max residues PDBFixer added to peptide (requires filtered_systems.tsv).")
-    p.add_argument("--max-receptor-added", type=int, metavar="N",
-                   help="Max residues PDBFixer added to receptor (requires filtered_systems.tsv).")
-    p.add_argument("--exclude", metavar="FILE",
-                   help="File with one pdb_id per line to exclude.")
+    # ---- Filters ----
+    filt_grp = p.add_argument_group("filters  (applied before sampling; all optional)")
+    filt_grp.add_argument("--single-chain", action=argparse.BooleanOptionalAction, default=True,
+                          help="Keep only single receptor-chain entries (default: on).")
+    filt_grp.add_argument("--min-receptor", type=int, metavar="N",
+                          help="Minimum receptor residue count.")
+    filt_grp.add_argument("--max-receptor", type=int, metavar="N",
+                          help="Maximum receptor residue count.")
+    filt_grp.add_argument("--min-peptide", type=int, metavar="N",
+                          help="Minimum peptide residue count.")
+    filt_grp.add_argument("--max-peptide", type=int, metavar="N",
+                          help="Maximum peptide residue count.")
+    filt_grp.add_argument("--min-dg", type=float, metavar="F",
+                          help="Minimum dG (kcal/mol), e.g. --min-dg -20.")
+    filt_grp.add_argument("--max-dg", type=float, metavar="F",
+                          help="Maximum dG (kcal/mol), e.g. --max-dg -5.")
+    filt_grp.add_argument("--binding-type", choices=["kd", "ki", "both"], default="both",
+                          help="Filter by measurement type: kd, ki, or both (default).")
+    filt_grp.add_argument("--max-added", type=int, metavar="N",
+                          help="Max residues PDBFixer added to peptide (requires filtered_systems.tsv).")
+    filt_grp.add_argument("--max-receptor-added", type=int, metavar="N",
+                          help="Max residues PDBFixer added to receptor (requires filtered_systems.tsv).")
+    filt_grp.add_argument("--exclude", metavar="FILE",
+                          help="File with one pdb_id per line to exclude.")
 
-    # Export options
-    p.add_argument("--link-cifs", action="store_true",
-                   help="Symlink selected CIF files into the run directory.")
-    p.add_argument("--copy-cifs", action="store_true",
-                   help="Copy (rather than symlink) selected CIF files into the run directory.")
-    p.add_argument("--protonate", action="store_true",
-                   help="Add missing hydrogens and protonate at the given pH. Implies --copy-cifs.")
-    p.add_argument("--ph", type=float, default=7.0,
-                   help="pH for protonation (default: 7.0). Only used with --protonate.")
-    p.add_argument("--format", choices=["cif", "pdb"], default="cif",
-                   help="Output structure format: cif (default) or pdb.")
+    # ---- Export ----
+    exp_grp = p.add_argument_group("export  (all optional; can be combined)")
+    exp_grp.add_argument("--link-cifs", action="store_true",
+                         help="Symlink structure files into run_XX/cif/ (or pdb/).")
+    exp_grp.add_argument("--copy-cifs", action="store_true",
+                         help="Copy structure files into run_XX/cif/ (or pdb/).")
+    exp_grp.add_argument("--protonate", action="store_true",
+                         help="Add missing hydrogens at the given pH. Implies file copy.")
+    exp_grp.add_argument("--ph", type=float, default=7.0,
+                         help="pH for protonation (default: 7.0). Only used with --protonate.")
+    exp_grp.add_argument("--format", choices=["cif", "pdb"], default="cif",
+                         help="Output format: cif (default) or pdb.")
 
     return p
 
@@ -166,6 +173,10 @@ def build_parser():
 def main():
     parser = build_parser()
     args = parser.parse_args()
+
+    for d in args.dims:
+        if d not in AVAILABLE_DIMS:
+            parser.error(f"Unknown dimension '{d}'. Available: {', '.join(AVAILABLE_DIMS)}")
 
     if not SUMMARY_TSV.exists():
         print(f"  Error: {SUMMARY_TSV} not found — run scrape_pdb_bind steps 1-3 first.")
@@ -220,9 +231,10 @@ def main():
         selected = rows
         print(f"  --no-sample: keeping all {len(selected)} entries")
     else:
-        selected = run_sampling(rows, args.sample, method=args.sampling, seed=args.seed)
+        selected = run_sampling(rows, args.sample, method=args.sampling,
+                                dims=args.dims, seed=args.seed)
         print(f"  Sampled {len(selected)} of {len(rows)} entries "
-              f"(method: {args.sampling})")
+              f"(method: {method_label(args.sampling, args.dims)})")
 
     selected.sort(key=lambda r: r["_dg"])
     print_sample_summary(selected)
@@ -237,7 +249,8 @@ def main():
         "mode":            "pick" if args.pick else ("no-sample" if args.no_sample else "sample"),
         "sample_size":     len(selected),
         "pool_size":       len(rows),
-        "sampling_method": args.sampling if not args.no_sample else "none",
+        "sampling_method": method_label(args.sampling, args.dims) if not args.no_sample else "none",
+        "dims":            args.dims if not args.no_sample else None,
         "seed":            args.seed,
         "protonate":       args.protonate,
         "ph":              args.ph if args.protonate else None,
