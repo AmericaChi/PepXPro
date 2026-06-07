@@ -24,7 +24,7 @@ _root = _here.parent
 sys.path.insert(0, str(_root))
 
 from modules.utils import load_tsv, save_tsv
-from modules.metadata import ss_percentages
+from modules.metadata import ss_percentages, classify_peptide_ss
 
 OUTPUTS_DIR   = _root / "outputs"
 LOGS_DIR      = _root / "logs"
@@ -39,9 +39,11 @@ OUT_COLS = [
     "peptide_added", "peptide_seq",
     "peptide_ss", "peptide_ss_dssp",
     "peptide_pct_helix", "peptide_pct_beta", "peptide_pct_coil",
+    "peptide_ss_class",
     "receptor_added", "receptor_seq",
     "receptor_ss", "receptor_ss_dssp",
     "receptor_pct_helix", "receptor_pct_beta", "receptor_pct_coil",
+    "receptor_func_class",
 ]
 
 
@@ -102,13 +104,18 @@ def main():
             "peptide_pct_helix": ss_percentages(row.get("peptide_ss_dssp", "NA"))[0],
             "peptide_pct_beta":  ss_percentages(row.get("peptide_ss_dssp", "NA"))[1],
             "peptide_pct_coil":  ss_percentages(row.get("peptide_ss_dssp", "NA"))[2],
+            "peptide_ss_class":  classify_peptide_ss(
+                ss_percentages(row.get("peptide_ss_dssp", "NA"))[0],
+                ss_percentages(row.get("peptide_ss_dssp", "NA"))[1],
+            ),
             "receptor_added":   row.get("receptor_added", ""),
             "receptor_seq":     row.get("receptor_seq", ""),
             "receptor_ss":      row.get("receptor_ss", "NA"),
             "receptor_ss_dssp": row.get("receptor_ss_dssp", "NA"),
-            "receptor_pct_helix": ss_percentages(row.get("receptor_ss_dssp", "NA"))[0],
-            "receptor_pct_beta":  ss_percentages(row.get("receptor_ss_dssp", "NA"))[1],
-            "receptor_pct_coil":  ss_percentages(row.get("receptor_ss_dssp", "NA"))[2],
+            "receptor_pct_helix":  ss_percentages(row.get("receptor_ss_dssp", "NA"))[0],
+            "receptor_pct_beta":   ss_percentages(row.get("receptor_ss_dssp", "NA"))[1],
+            "receptor_pct_coil":   ss_percentages(row.get("receptor_ss_dssp", "NA"))[2],
+            "receptor_func_class": row.get("receptor_func_class", "NA"),
         }))
 
     out_rows.sort(key=lambda x: x[0])
@@ -122,11 +129,6 @@ def main():
         fh.write("\t".join(OUT_COLS) + "\n")
         for r in rows[:10]:
             fh.write("\t".join(r.get(c, "") for c in OUT_COLS) + "\n")
-
-    print("\nPreview (first 10 rows):")
-    print("\t".join(OUT_COLS))
-    for r in rows[:10]:
-        print("\t".join(r.get(c, "") for c in OUT_COLS))
 
 
 if __name__ == "__main__":

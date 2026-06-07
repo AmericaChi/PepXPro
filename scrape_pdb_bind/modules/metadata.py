@@ -163,6 +163,106 @@ def ss_percentages(ss_str):
     )
 
 
+_FUNC_RULES = [
+    ("enzyme",          ["kinase", "phosphatase", "protease", "peptidase",
+                         "transferase", "synthase", "synthetase", "ligase", "lyase",
+                         "isomerase", "oxidase", "reductase", "dehydrogenase",
+                         "hydrolase", "lipase", "nuclease", "methyltransferase",
+                         "acetyltransferase", " enzyme", "catalytic subunit"]),
+    ("chaperone",       ["chaperone", "heat shock protein", "heat shock cognate",
+                         "dnak", "groel", "groes", "trigger factor", "prefoldin"]),
+    ("structural",      ["structural protein", "collagen", "actin", "tubulin",
+                         "myosin", "keratin", "laminin", "fibronectin",
+                         "cytoskeletal"]),
+    ("signal",          ["signal transduction", "signaling protein", "gtpase",
+                         "g-protein", "g protein alpha", "ras protein", "rho protein",
+                         "growth factor receptor", "receptor tyrosine kinase"]),
+    ("regulatory",      ["transcription factor", "transcription activator",
+                         "transcription repressor", "regulatory protein",
+                         "transcriptional regulator", "repressor protein",
+                         "tumor suppressor", "cyclin-dependent"]),
+    ("peptide-binding", ["binding protein", "pdz domain", "sh2 domain",
+                         "sh3 domain", "bromodomain", "chromodomain",
+                         "14-3-3 protein", "recognition module"]),
+]
+
+
+def classify_receptor_function(description):
+    """Classify receptor into one of 7 functional classes based on PDB entity description.
+
+    Classes (priority order): enzyme, chaperone, structural, signal,
+    regulatory, peptide-binding, other.
+    Returns one of those strings, or 'NA' if description is empty.
+    """
+    if not description or description == "NA":
+        return "NA"
+    desc = description.lower()
+    for cls, keywords in _FUNC_RULES:
+        if any(kw in desc for kw in keywords):
+            return cls
+    return "other"
+
+
+def extract_receptor_description(cif_path, receptor_chain_ids):
+    """Return the PDB entity description for the first receptor chain.
+
+    Reads _entity.pdbx_description from the raw assembly CIF.
+    Returns description string or 'NA'.
+    """
+    from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+    try:
+        d = MMCIF2Dict(str(cif_path))
+    except Exception:
+        return "NA"
+
+    auth_ids   = d.get("_atom_site.auth_asym_id",    [])
+    entity_ids = d.get("_atom_site.label_entity_id", [])
+    chain_to_entity = {}
+    for auth, eid in zip(auth_ids, entity_ids):
+        if auth not in chain_to_entity:
+            chain_to_entity[auth] = eid
+
+    ent_ids   = d.get("_entity.id",               [])
+    ent_descs = d.get("_entity.pdbx_description", [])
+    eid_to_desc = dict(zip(ent_ids, ent_descs))
+
+    for chain_id in receptor_chain_ids:
+        eid = chain_to_entity.get(chain_id)
+        if eid and eid in eid_to_desc:
+            return eid_to_desc[eid]
+    return "NA"
+
+
+def classify_peptide_ss(pct_helix_str, pct_beta_str):
+    """Classify peptide secondary structure into 5 categories.
+
+    Categories (priority order):
+      helix         pct_helix >= 0.70
+      beta          pct_beta  >= 0.50
+      mixed         pct_helix >= 0.20 AND pct_beta >= 0.20
+      partial-helix pct_helix >= 0.30
+      other         coil-dominated or NA
+
+    The beta-sheet binding-induced vs self-folding distinction requires
+    unbound structure data (not available); both are collapsed into 'beta'.
+    Returns one of: 'helix', 'partial-helix', 'beta', 'mixed', 'other', 'NA'.
+    """
+    try:
+        h = float(pct_helix_str)
+        e = float(pct_beta_str)
+    except (ValueError, TypeError):
+        return "NA"
+    if h >= 0.70:
+        return "helix"
+    if e >= 0.50:
+        return "beta"
+    if h >= 0.20 and e >= 0.20:
+        return "mixed"
+    if h >= 0.30:
+        return "partial-helix"
+    return "other"
+
+
 def extract_ss_string(cif_path, chain_id, residue_ids):
     """Return a per-residue secondary structure string for chain_id.
 

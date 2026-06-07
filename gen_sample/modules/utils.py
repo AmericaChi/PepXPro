@@ -33,8 +33,12 @@ def parse_peptide(peptide_str):
     return parts[0], int(parts[1])
 
 
+SS_CLASS_ORDER   = ["helix", "partial-helix", "beta", "mixed", "other"]
+FUNC_CLASS_ORDER = ["enzyme", "chaperone", "structural", "signal",
+                    "regulatory", "peptide-binding", "other"]
+
 def enrich_rows(rows):
-    """Add _dg, _pep_len, _rec_len, _n_rec_chains, _resolution to each row."""
+    """Add _dg, _pep_len, _rec_len, _n_rec_chains, _resolution, _ss_class to each row."""
     valid = []
     for r in rows:
         try:
@@ -49,6 +53,18 @@ def enrich_rows(rows):
         try:
             r["_resolution"] = float(res_raw)
         except (ValueError, TypeError):
-            r["_resolution"] = None  # NMR or NA
+            r["_resolution"] = None
+        # SS class: ordinal int for sampling, None if NA
+        ss_class = r.get("peptide_ss_class", "NA")
+        try:
+            r["_ss_class"] = SS_CLASS_ORDER.index(ss_class)
+        except ValueError:
+            r["_ss_class"] = None
+        # Receptor functional class: ordinal int for sampling, None if NA
+        func_class = r.get("receptor_func_class", "NA")
+        try:
+            r["_func_class"] = FUNC_CLASS_ORDER.index(func_class)
+        except ValueError:
+            r["_func_class"] = None
         valid.append(r)
     return valid

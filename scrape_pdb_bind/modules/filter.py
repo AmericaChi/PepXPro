@@ -22,6 +22,8 @@ from .metadata import (
     extract_resolution,
     extract_ss_string,
     extract_ss_dssp_chain,
+    extract_receptor_description,
+    classify_receptor_function,
 )
 
 # ---------------------------------------------------------------------------
@@ -516,6 +518,9 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
         f"{cid}:{extract_ss_dssp_chain(fixed_cif_path, cid)}" for cid in rec_ids
     )
 
+    rec_description = extract_receptor_description(cif_path, receptor_chain_ids)
+    rec_func_class  = classify_receptor_function(rec_description)
+
     return dict(
         accepted=True,
         peptide_chain=pep_id,
@@ -530,6 +535,8 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
         peptide_ss_dssp=peptide_ss_dssp,
         receptor_ss_dssp=receptor_ss_dssp,
         resolution=resolution,
+        receptor_description=rec_description,
+        receptor_func_class=rec_func_class,
         ion_chains=ion_chains_out,
         residues_added=residues_added,
         reject_reason="",

@@ -30,16 +30,15 @@ PepPro is a modular framework for generating peptide–protein benchmark dataset
 
 - Quality filtering (length, dG, resolution, binding type, added residues, exclusion list)
 - Sequence redundancy filtering (CD-HIT for receptor, Biopython pairwise for peptide)
+- Structural redundancy filtering (TM-score receptor via tmtools; iRMSD interface)
 - Stratified, Kennard-Stone, KDE, isolation-forest, cluster sampling
 - Structure export (CIF/PDB, symlink/copy, protonation)
-- Sampling benchmark plots
+- Sampling benchmark plots, per-run comparison plots, FASTA export
 
 ## Planned gen_sample modules
 
-- Structural redundancy filtering (PyMOL RMSD)
 - Functional redundancy filtering
 - Peptide feature analysis (charge, hydrophobicity, aromaticity)
-- Metadata quality filters (resolution, method, deposition year)
 - Benchmark export with ML-friendly splits
 
 ## Output organization
@@ -72,6 +71,14 @@ To create from scratch:
 ```bash
 conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source
 ```
+
+Then install pip-only packages (not available on conda):
+```bash
+python -m pip install tmtools
+```
+
+Note: always use `python -m pip install` (not plain `pip install`) inside the conda
+environment to avoid installing into the system Python.
 
 After creating the environment, download DSSP dictionary files (one-time):
 ```bash

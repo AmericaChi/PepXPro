@@ -6,6 +6,8 @@ DIM_KEYS = {
     "pep_len":      "_pep_len",
     "rec_len":      "_rec_len",
     "n_rec_chains": "_n_rec_chains",
+    "ss_class":     "_ss_class",
+    "func_class":   "_func_class",
 }
 
 AVAILABLE_DIMS = list(DIM_KEYS.keys())
@@ -17,6 +19,16 @@ def _quantile_bins(vals, k):
     for rank, idx in enumerate(order):
         bins[idx] = min(int(rank * k / len(vals)), k - 1)
     return bins
+
+
+def _filter_valid(rows, dims):
+    """Drop rows where any requested dimension has a None value."""
+    keys = [DIM_KEYS[d] for d in dims]
+    valid = [r for r in rows if all(r.get(k) is not None for k in keys)]
+    dropped = len(rows) - len(valid)
+    if dropped:
+        print(f"  Note: {dropped} entries dropped from sampling (missing value in {dims}).")
+    return valid
 
 
 def _resolve_vals(rows, dims):
@@ -323,4 +335,8 @@ def method_label(method, dims):
 def run_sampling(rows, n, method="stratified", dims=None, seed=None):
     if method not in SAMPLING_METHODS:
         raise ValueError(f"Unknown method '{method}'. Choose from: {', '.join(SAMPLING_METHODS)}")
+    effective_dims = dims or ["dg", "pep_len"]
+    rows = _filter_valid(rows, effective_dims)
+    if not rows:
+        raise ValueError(f"No entries with valid values for dims: {effective_dims}")
     return SAMPLING_METHODS[method](rows, n, dims=dims, seed=seed)

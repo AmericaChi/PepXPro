@@ -69,7 +69,17 @@ OUTPUT (gen_sample/outputs/run_XX/)
 ------------------------------------
 sample.tsv             Selected entries.
 run_config.json        All parameters used: mode, filters, sampling method, seed, paths.
-cif/  or  pdb/         Structure files (only if --link-cifs, --copy-cifs, or --protonate).
+pool_quality.tsv           Entries after quality filters (before redundancy). Saved by default.
+pool_redundancy.tsv        Entries after redundancy filters (before sampling). Saved by default.
+peptide_sequences.fasta    Peptide sequences in FASTA format (only with --export-fasta).
+receptor_sequences.fasta   Receptor sequences in FASTA format (only with --export-fasta).
+cif/  or  pdb/             Structure files (only if --link-cifs, --copy-cifs, or --protonate).
+plots/
+  run_comparison.png       Filtering + sampling distribution plot (03_compare_runs.py).
+
+OUTPUT OPTIONS  (all optional)
+-------------------------------
+--no-save-pools        Do not save pool_quality.tsv and pool_redundancy.tsv (saved by default).
 
 MODES  (mutually exclusive, one required)
 ------------------------------------------
@@ -129,6 +139,20 @@ REDUNDANCY  (applied after quality filters, before sampling; all optional)
 Note: when both --seq-id-receptor and --seq-id-peptide are active, receptor
 filtering runs first (CD-HIT), then peptide filtering (Biopython) on the result.
 
+STRUCTURAL REDUNDANCY  (applied after seq redundancy; requires fixed_cif/)
+---------------------------------------------------------------------------
+--tm-score-receptor F  Receptor TM-score threshold (e.g. 0.5). Pairs with
+                       TM-score >= threshold are redundant. 0.5 = same fold.
+                       Requires tmtools: pip install tmtools
+--irmsd F              Interface RMSD threshold in Å (e.g. 2.0). Applied after
+                       --tm-score-receptor. Interface defined as receptor CA
+                       within --irmsd-dist Å of any peptide atom. Pairs with
+                       iRMSD < threshold are redundant.
+--irmsd-dist F         Distance in Å to define interface (default: 4.0).
+
+Note: --irmsd is designed to run after --tm-score-receptor. Using --irmsd alone
+(without --tm-score-receptor) will produce a warning.
+
 EXPORT  (all optional; can be combined)
 ----------------------------------------
 --link-cifs            Symlink structure files into run_XX/cif/ (or pdb/).
@@ -136,6 +160,9 @@ EXPORT  (all optional; can be combined)
 --protonate            Add missing hydrogens and protonate at given pH. Implies file copy.
 --ph F                 pH for protonation. Default: 7.0. Only used with --protonate.
 --format FMT           Output structure format. Choices: cif  pdb. Default: cif.
+--export-fasta         Write peptide_sequences.fasta and receptor_sequences.fasta to run_XX/.
+                       Requires peptide_seq / receptor_seq columns in summary.tsv.
+                       Use with Clustal Omega, MUSCLE, or any MSA tool.
 
 USAGE EXAMPLES
 --------------
@@ -158,6 +185,25 @@ python gen_sample.py --no-sample --link-cifs
 python gen_sample.py --dry-run --max-peptide 15 --binding-type kd
 python gen_sample.py --pick 1abc
 python gen_sample.py --pick 1abc --protonate --ph 6.5 --format pdb
+
+
+===========================================================================
+SCRIPT: gen_sample/scripts/03_compare_runs.py
+===========================================================================
+Plots the distribution of entries at each pipeline stage for a single run:
+  quality pool → redundancy pool → sample
+Requires pool_quality.tsv and pool_redundancy.tsv in the run directory
+(saved by default by 01_gen_sample.py; use --no-save-pools to skip).
+
+Output: run_XX/plots/run_comparison.png
+
+FLAGS
+-----
+--run RUN_DIR   Run directory name (required), e.g. run_01.
+
+USAGE EXAMPLES
+--------------
+python 03_compare_runs.py --run run_01
 
 
 ===========================================================================

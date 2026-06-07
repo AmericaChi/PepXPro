@@ -4,7 +4,8 @@ from pathlib import Path
 
 from .utils import save_tsv
 
-SUMMARY_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type"]
+SUMMARY_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
+                "peptide_ss_class", "receptor_func_class"]
 
 
 def next_run_dir(outputs_dir):
@@ -89,6 +90,30 @@ def link_cifs(rows, run_dir, fixed_cif_dir, copy=False, fmt="cif"):
     print(f"  {action} {n_ok} files → {out_dir}")
     if missing:
         print(f"  Warning: {len(missing)} file(s) not found or failed: {', '.join(missing)}")
+
+
+def write_fasta(rows, run_dir):
+    """Write peptide_sequences.fasta and receptor_sequences.fasta for selected rows."""
+    run_dir = Path(run_dir)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    for seq_col, fname in [("peptide_seq", "peptide_sequences.fasta"),
+                            ("receptor_seq", "receptor_sequences.fasta")]:
+        out = run_dir / fname
+        written = 0
+        missing = 0
+        with open(out, "w", encoding="ascii") as fh:
+            for r in rows:
+                seq = r.get(seq_col, "").strip()
+                if not seq or seq == "NA":
+                    missing += 1
+                    continue
+                fh.write(f">{r['pdb_id']}\n{seq}\n")
+                written += 1
+        print(f"  Written {out}  ({written} sequences)", end="")
+        if missing:
+            print(f"  [{missing} missing seq skipped]", end="")
+        print()
 
 
 def protonate_cifs(rows, run_dir, fixed_cif_dir, ph=7.0, fmt="cif"):

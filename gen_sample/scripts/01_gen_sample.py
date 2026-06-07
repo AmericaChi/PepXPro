@@ -26,8 +26,13 @@ sys.path.insert(0, str(_root))
 from modules.utils import load_tsv, enrich_rows
 from modules.filters import apply_quality_filters
 from modules.sequence_redundancy import apply_redundancy_filters
+from modules.structural_redundancy import apply_structural_redundancy_filters
 from modules.sampling import run_sampling, SAMPLING_METHODS, method_label, AVAILABLE_DIMS
-from modules.export import next_run_dir, write_sample, save_run_config, link_cifs, protonate_cifs
+from modules.export import next_run_dir, write_sample, save_run_config, link_cifs, protonate_cifs, write_fasta
+from modules.utils import save_tsv
+
+POOL_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
+             "resolution", "peptide_ss_class", "receptor_func_class"]
 
 # ---------------------------------------------------------------------------
 # Paths (relative to scrape_pdb_bind, which lives next to gen_sample)
@@ -204,6 +209,31 @@ def build_parser():
         help="Peptide identity threshold for --seq-id-peptide custom (e.g. 0.80).",
     )
 
+    # ---- Structural redundancy ----
+    struct_grp = p.add_argument_group(
+        "structural redundancy  (applied after seq redundancy; requires fixed_cif/)"
+    )
+    struct_grp.add_argument(
+        "--tm-score-receptor", type=float, metavar="F",
+        help="Receptor TM-score threshold (e.g. 0.5). Pairs >= threshold are redundant. "
+             "Recommended: 0.5 = same fold. Requires tmtools (pip install tmtools).",
+    )
+    struct_grp.add_argument(
+        "--irmsd", type=float, metavar="F",
+        help="Interface RMSD threshold in Å (e.g. 2.0). Applied after --tm-score-receptor. "
+             "Interface: receptor CA within --irmsd-dist Å of any peptide atom.",
+    )
+    struct_grp.add_argument(
+        "--irmsd-dist", type=float, default=4.0, metavar="F",
+        help="Distance in Å to define binding interface for iRMSD (default: 4.0).",
+    )
+
+    # ---- Output ----
+    out_grp = p.add_argument_group("output")
+    out_grp.add_argument("--no-save-pools", action="store_true",
+                         help="Do not save pool_quality.tsv and pool_redundancy.tsv "
+                              "in the run directory (saved by default).")
+
     # ---- Export ----
     exp_grp = p.add_argument_group("export  (all optional; can be combined)")
     exp_grp.add_argument("--link-cifs", action="store_true",
@@ -216,6 +246,10 @@ def build_parser():
                          help="pH for protonation (default: 7.0). Only used with --protonate.")
     exp_grp.add_argument("--format", choices=["cif", "pdb"], default="cif",
                          help="Output format: cif (default) or pdb.")
+    exp_grp.add_argument("--export-fasta", action="store_true",
+                         help="Write peptide_sequences.fasta and receptor_sequences.fasta "
+                              "to the run directory. Requires peptide_seq / receptor_seq "
+                              "columns in summary.tsv.")
 
     return p
 
@@ -269,50 +303,65 @@ def main():
         return
 
     # Quality filters
-    rows = apply_quality_filters(all_rows, args, FILTERED_TSV)
+    pool_quality = apply_quality_filters(all_rows, args, FILTERED_TSV)
 
-    if not rows:
+    if not pool_quality:
         print("  No entries remain after quality filtering.")
         sys.exit(1)
 
-    # Redundancy filters
-    rows = apply_redundancy_filters(rows, args)
+    # Sequence redundancy
+    pool_seq = apply_redundancy_filters(pool_quality, args)
 
-    if not rows:
-        print("  No entries remain after filtering.")
+    if not pool_seq:
+        print("  No entries remain after sequence redundancy filtering.")
+        sys.exit(1)
+
+    # Structural redundancy (TM-score → iRMSD)
+    pool_redundancy = apply_structural_redundancy_filters(pool_seq, args, FIXED_CIF_DIR)
+
+    if not pool_redundancy:
+        print("  No entries remain after structural redundancy filtering.")
         sys.exit(1)
 
     # Dry run — just show pool stats
     if args.dry_run:
-        print_pool_summary(rows)
+        print_pool_summary(pool_redundancy)
         return
 
-    # Sample or take all
-    if args.no_sample:
-        selected = rows
-        print(f"  --no-sample: keeping all {len(selected)} entries")
-    else:
-        selected = run_sampling(rows, args.sample, method=args.sampling,
-                                dims=args.dims, seed=args.seed)
-        print(f"  Sampled {len(selected)} of {len(rows)} entries "
-              f"(method: {method_label(args.sampling, args.dims)})")
-
-    selected.sort(key=lambda r: r["_dg"])
-    print_sample_summary(selected)
-
-    # Write outputs
+    # Set up output dir and logging
     run_dir = next_run_dir(OUTPUTS_DIR)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
     tee = _Tee(LOGS_DIR / f"{run_dir.name}.log")
     sys.stdout = tee
     print(f"  Output → {run_dir}")
 
+    # Save intermediate pools
+    if not getattr(args, "no_save_pools", False):
+        run_dir.mkdir(parents=True, exist_ok=True)
+        save_tsv(pool_quality, run_dir / "pool_quality.tsv", POOL_COLS)
+        print(f"  Written {run_dir / 'pool_quality.tsv'}  ({len(pool_quality)} entries)")
+        save_tsv(pool_redundancy, run_dir / "pool_redundancy.tsv", POOL_COLS)
+        print(f"  Written {run_dir / 'pool_redundancy.tsv'}  ({len(pool_redundancy)} entries)")
+
+    # Sample or take all
+    if args.no_sample:
+        selected = pool_redundancy
+        print(f"  --no-sample: keeping all {len(selected)} entries")
+    else:
+        selected = run_sampling(pool_redundancy, args.sample, method=args.sampling,
+                                dims=args.dims, seed=args.seed)
+        print(f"  Sampled {len(selected)} of {len(pool_redundancy)} entries "
+              f"(method: {method_label(args.sampling, args.dims)})")
+
+    selected.sort(key=lambda r: r["_dg"])
+    print_sample_summary(selected)
+
     write_sample(selected, run_dir)
 
     config = {
         "mode":            "pick" if args.pick else ("no-sample" if args.no_sample else "sample"),
         "sample_size":     len(selected),
-        "pool_size":       len(rows),
+        "pool_size":       len(pool_redundancy),
         "sampling_method": method_label(args.sampling, args.dims) if not args.no_sample else "none",
         "redundancy": {
             "seq_id_receptor":           args.seq_id_receptor,
@@ -348,6 +397,8 @@ def main():
     }
     save_run_config(config, run_dir)
     _export_cifs(selected, run_dir, args)
+    if args.export_fasta:
+        write_fasta(selected, run_dir)
     tee.close()
 
 

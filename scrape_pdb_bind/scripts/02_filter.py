@@ -7,6 +7,13 @@ and write fixed CIFs to fixed_cif/.
 Input:  outputs/peptide_entries.tsv, pdb_cache/<pdb_id>-<N>.cif
 Output: outputs/filtered_systems.tsv, fixed_cif/<pdb_id>.cif
         logs/02_filter.log
+
+Cache behaviour (default):
+  - Entries already in filtered_systems.tsv are reused without reprocessing.
+  - If only lightweight columns (receptor_description, receptor_func_class) are
+    missing from an accepted entry, they are patched cheaply from the raw CIF
+    without re-running PDBFixer or DSSP.
+  - Use --force to bypass the cache and reprocess all entries.
 """
 
 import argparse
@@ -36,8 +43,77 @@ OUT_COLS = [
     "receptor_chains", "receptor_length", "receptor_added", "receptor_seq",
     "receptor_ss", "receptor_ss_dssp",
     "resolution",
+    "receptor_description", "receptor_func_class",
     "reject_reason",
 ]
+
+# Columns whose presence indicates expensive work (PDBFixer + DSSP) was done.
+_HEAVY_COLS = ("peptide_seq", "receptor_seq")
+
+# Columns that can be added cheaply from the raw pdb_cache CIF without
+# running PDBFixer or DSSP — just reading _entity.pdbx_description.
+_PATCH_COLS = frozenset(("receptor_description", "receptor_func_class"))
+
+
+def _load_cache(tsv_path):
+    """Load existing filtered_systems.tsv as {pdb_id: row_dict}."""
+    if not tsv_path.exists():
+        return {}
+    return {r["pdb_id"]: r for r in load_tsv(tsv_path)}
+
+
+def _cache_status(cached):
+    """
+    Classify the state of a cached row.
+    Returns:
+      'full'  — row is up-to-date; no processing needed.
+      'patch' — heavy work done; only _PATCH_COLS are missing; add cheaply.
+      'miss'  — needs full reprocessing.
+    """
+    if cached is None:
+        return "miss"
+    # Rejected entries are always fully cached (no columns to patch)
+    if cached.get("accepted") == "N":
+        return "full"
+    # Accepted entry: verify heavy sentinel columns are non-empty
+    if not all(cached.get(c, "") not in ("", "NA") for c in _HEAVY_COLS):
+        return "miss"
+    # Find which required columns are absent or empty (reject_reason is always
+    # empty for accepted entries — skip it)
+    missing = [c for c in OUT_COLS
+               if c != "reject_reason" and not cached.get(c, "")]
+    if not missing:
+        return "full"
+    if all(c in _PATCH_COLS for c in missing):
+        return "patch"
+    return "miss"
+
+
+def _patch_func_class(pdb_id, cached):
+    """
+    Add receptor_description and receptor_func_class to a cached accepted row.
+    Only reads the raw assembly CIF — no PDBFixer, no DSSP.
+    """
+    from modules.metadata import extract_receptor_description, classify_receptor_function
+
+    asm_num = cached.get("assembly_num", "1") or "1"
+    cif_path = PDB_CACHE / f"{pdb_id}-{asm_num}.cif"
+    if not cif_path.exists():
+        cif_path = PDB_CACHE / f"{pdb_id}-1.cif"
+
+    rec_chain_ids = [c.strip()
+                     for c in cached.get("receptor_chains", "").split(",")
+                     if c.strip()]
+
+    row = dict(cached)
+    if cif_path.exists() and rec_chain_ids:
+        desc = extract_receptor_description(cif_path, rec_chain_ids)
+        row["receptor_description"] = desc
+        row["receptor_func_class"] = classify_receptor_function(desc)
+    else:
+        row.setdefault("receptor_description", "NA")
+        row.setdefault("receptor_func_class", "NA")
+    return row
 
 
 def load_entries(tsv_path):
@@ -57,6 +133,8 @@ def main():
         description="Step 2: Filter entries, check AMBER14 compatibility, write fixed CIFs.")
     parser.add_argument("--clean", action="store_true",
                         help="Remove filtered_systems.tsv and fixed_cif/.")
+    parser.add_argument("--force", action="store_true",
+                        help="Ignore the existing cache and reprocess all entries from scratch.")
     args = parser.parse_args()
 
     if args.clean:
@@ -71,12 +149,25 @@ def main():
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Load existing results before opening OUT_TSV for writing
+    if args.force:
+        cache = {}
+        print("  --force: ignoring existing cache, reprocessing all entries.")
+    else:
+        cache = _load_cache(OUT_TSV)
+        if cache:
+            n_acc = sum(1 for r in cache.values() if r.get("accepted") == "Y")
+            n_rej = len(cache) - n_acc
+            print(f"  Cache loaded: {n_acc} accepted, {n_rej} rejected ({len(cache)} total).")
+
     print(f"Reading {IN_TSV} ...")
     entries = load_entries(IN_TSV)
     print(f"  {len(entries)} entries to process")
 
     accepted_count = 0
     rejected_count = 0
+    cached_count   = 0
+    patched_count  = 0
     n_total = len(entries)
 
     with open(OUT_TSV, "w", encoding="ascii") as tsv_fh, \
@@ -88,9 +179,37 @@ def main():
             print(msg)
             log_fh.write(msg + "\n")
 
+        def _write_row(row):
+            tsv_fh.write("\t".join(row.get(c, "") for c in OUT_COLS) + "\n")
+
         for i, (pdb_id, entry_data) in enumerate(entries.items(), 1):
-            n_mer           = entry_data["n_mer"]
+            n_mer            = entry_data["n_mer"]
             index_resolution = entry_data["resolution"]
+
+            # ── Cache check ───────────────────────────────────────────────
+            cached = cache.get(pdb_id)
+            status = _cache_status(cached)
+
+            if status == "full":
+                row = {c: cached.get(c, "") for c in OUT_COLS}
+                _write_row(row)
+                if cached.get("accepted") == "Y":
+                    accepted_count += 1
+                else:
+                    rejected_count += 1
+                cached_count += 1
+                continue
+
+            if status == "patch":
+                patched = _patch_func_class(pdb_id, cached)
+                row = {c: patched.get(c, "") for c in OUT_COLS}
+                _write_row(row)
+                accepted_count += 1
+                patched_count  += 1
+                log(f"  [{i}/{n_total}] PATCH  {pdb_id}  (receptor_func_class added)")
+                continue
+
+            # ── Full processing ───────────────────────────────────────────
             result = process_entry(pdb_id, n_mer, PDB_CACHE, FIXED_DIR)
             # Assembly CIFs lack experimental metadata — use INDEX resolution
             if result.get("resolution", "NA") == "NA":
@@ -119,10 +238,12 @@ def main():
                     "receptor_length": str(result["receptor_length"]),
                     "receptor_added":  str(rec_added),
                     "receptor_seq":    result.get("receptor_seq", ""),
-                    "receptor_ss":     result.get("receptor_ss", "NA"),
-                    "receptor_ss_dssp": result.get("receptor_ss_dssp", "NA"),
-                    "resolution":      result.get("resolution", "NA"),
-                    "reject_reason":   "",
+                    "receptor_ss":          result.get("receptor_ss", "NA"),
+                    "receptor_ss_dssp":     result.get("receptor_ss_dssp", "NA"),
+                    "resolution":           result.get("resolution", "NA"),
+                    "receptor_description": result.get("receptor_description", "NA"),
+                    "receptor_func_class":  result.get("receptor_func_class", "NA"),
+                    "reject_reason":        "",
                 }
 
                 pep_str = f"{pep_id}:{result['peptide_length'] - pep_added}+{pep_added}"
@@ -153,10 +274,12 @@ def main():
                 log(f"  [{i}/{n_total}] REJECT {pdb_id}: {result['reject_reason']}  "
                     f"(accepted={accepted_count} rejected={rejected_count})")
 
-            tsv_fh.write("\t".join(row.get(c, "") for c in OUT_COLS) + "\n")
+            _write_row(row)
 
+    new_count = accepted_count + rejected_count - cached_count - patched_count
     print(f"\nDone. accepted={accepted_count} rejected={rejected_count} "
-          f"total={accepted_count + rejected_count}")
+          f"total={accepted_count + rejected_count} "
+          f"(cached={cached_count}  patched={patched_count}  new={new_count})")
     print(f"Written {OUT_TSV}")
     print(f"Log: {LOG_FILE}")
 
