@@ -27,8 +27,9 @@ from modules.filters import filter_single_chain
 from modules.sampling import SAMPLING_METHODS, method_label, DIM_KEYS, AVAILABLE_DIMS
 
 _SCRAPE_DIR = _root.parent / "scrape_pdb_bind"
-SUMMARY_TSV = _SCRAPE_DIR / "summary.tsv"
+SUMMARY_TSV = _SCRAPE_DIR / "outputs" / "summary.tsv"
 PLOTS_DIR   = _root / "outputs" / "plots"
+LOGS_DIR    = _root / "logs"
 
 DIM_LABELS = {
     "dg":           "ΔG (kcal/mol)",
@@ -129,6 +130,16 @@ def main():
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"  Saved {out}")
     plt.close(fig)
+
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOGS_DIR / "02_benchmark_sampling.log"
+    with open(log_path, "w", encoding="ascii") as lf:
+        lf.write(f"N={args.n}, seed={args.seed}, dims={args.dims}, pool={len(pool)}\n")
+        for method in methods:
+            selected, dims = results[method]
+            lf.write(f"  {method_label(method, dims)}: {len(selected)} selected\n")
+        lf.write(f"  Plot: {out}\n")
+    print(f"  Log: {log_path}")
 
 
 if __name__ == "__main__":

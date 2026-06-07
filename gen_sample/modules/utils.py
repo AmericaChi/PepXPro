@@ -34,7 +34,7 @@ def parse_peptide(peptide_str):
 
 
 def enrich_rows(rows):
-    """Add _dg, _pep_len, _rec_len, _n_rec_chains to each row in-place."""
+    """Add _dg, _pep_len, _rec_len, _n_rec_chains, _resolution to each row."""
     valid = []
     for r in rows:
         try:
@@ -44,5 +44,11 @@ def enrich_rows(rows):
             r["_n_rec_chains"] = len(chains)
         except (ValueError, KeyError, IndexError):
             continue
+        # Resolution: float if numeric, None if NMR/NA/missing
+        res_raw = r.get("resolution", "NA")
+        try:
+            r["_resolution"] = float(res_raw)
+        except (ValueError, TypeError):
+            r["_resolution"] = None  # NMR or NA
         valid.append(r)
     return valid

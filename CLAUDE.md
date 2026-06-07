@@ -5,13 +5,17 @@ PepPro is a modular framework for generating peptide–protein benchmark dataset
 ## Repository structure
 
 - `scrape_pdb_bind/`
-  Original pipeline for scraping, filtering, and preparing peptide–protein systems from PDBbind. Do not touch for now.
+  Modular pipeline for downloading, filtering, and preparing peptide–protein systems from PDBbind.
+  Modules in `modules/`, scripts in `scripts/`, outputs in `outputs/`, logs in `logs/`.
 
 - `gen_sample/`
-  Modular benchmark/sample generation framework. Currently working on this.
+  Modular benchmark/sample generation framework. Reads from `scrape_pdb_bind/outputs/`.
 
 - `pep-pro-benchmark/`
-  Curated benchmark datasets and metadata releases. Will work on these in the future.
+  Curated benchmark datasets and metadata releases. Future work.
+
+- `manual/`
+  Comprehensive user manual: `peppro_manual.txt`.
 
 ## Development philosophy
 
@@ -22,30 +26,38 @@ PepPro is a modular framework for generating peptide–protein benchmark dataset
 - Benchmark-oriented dataset generation
 - ML-friendly dataset splits
 
+## Implemented gen_sample modules
+
+- Quality filtering (length, dG, resolution, binding type, added residues, exclusion list)
+- Sequence redundancy filtering (CD-HIT for receptor, Biopython pairwise for peptide)
+- Stratified, Kennard-Stone, KDE, isolation-forest, cluster sampling
+- Structure export (CIF/PDB, symlink/copy, protonation)
+- Sampling benchmark plots
+
 ## Planned gen_sample modules
 
-- simple filtering 
-- metadata extraction
-- peptide feature analysis
-- sequence similarity
-- structural similarity
-- secondary structure analysis
-- stratified sampling
-- benchmark export
+- Structural redundancy filtering (PyMOL RMSD)
+- Functional redundancy filtering
+- Peptide feature analysis (charge, hydrophobicity, aromaticity)
+- Metadata quality filters (resolution, method, deposition year)
+- Benchmark export with ML-friendly splits
 
 ## Output organization
 
-Outputs should be organized as:
+scrape_pdb_bind/outputs/
+├── peptide_entries.tsv
+├── filtered_systems.tsv
+├── summary.tsv
+└── plots/
+    ├── summary_distributions.png
+    └── summary_statistics.tsv
 
-outputs/
-└── run_XX/
-    ├── summaries/
-    ├── datasets/
-    ├── logs/
-    ├── cif/
-    ├── pdb/
-    ├── reports/
-    └── run_config.json
+gen_sample/outputs/run_XX/
+├── sample.tsv
+├── run_config.json
+├── cif/  or  pdb/
+└── plots/
+    └── sampling_benchmark.png
 
 Large generated files should not be tracked by git.
 
@@ -58,7 +70,15 @@ conda activate peppro
 
 To create from scratch:
 ```bash
-conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn pymol-open-source
+conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source
+```
+
+After creating the environment, download DSSP dictionary files (one-time):
+```bash
+mkdir -p /opt/miniconda3/envs/peppro/var/cache/libcifpp/
+curl -o /opt/miniconda3/envs/peppro/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
+curl -o /opt/miniconda3/envs/peppro/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
+curl -o /opt/miniconda3/envs/peppro/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
 ```
 
 ## Coding guidelines

@@ -1,22 +1,17 @@
 """
-gen_sample.py — Generate a peptide-protein benchmark sample from PDBbind outputs.
+01_gen_sample.py — Generate a peptide-protein benchmark sample from PDBbind outputs.
 
 Reads summary.tsv (and optionally filtered_systems.tsv) produced by scrape_pdb_bind,
 applies filters, samples entries, and writes outputs to gen_sample/outputs/run_XX/.
+A log is written to gen_sample/logs/run_XX.log for every non-dry-run execution.
 
 Usage examples:
-  python gen_sample.py --sample 20
-  python gen_sample.py --sample 20 --single-chain --max-peptide 15
-  python gen_sample.py --sample 20 --sampling kennard-stone --seed 42
-  python gen_sample.py --sample 20 --sampling kde
-  python gen_sample.py --no-sample
-  python gen_sample.py --dry-run
-  python gen_sample.py --sample 20 --link-cifs
-  python gen_sample.py --sample 20 --copy-cifs
-  python gen_sample.py --sample 20 --protonate
-  python gen_sample.py --sample 20 --protonate --ph 6.5
-  python gen_sample.py --pick 1abc
-  python gen_sample.py --pick 1abc --protonate --ph 7.4
+  python 01_gen_sample.py --sample 20
+  python 01_gen_sample.py --sample 20 --single-chain --max-peptide 15
+  python 01_gen_sample.py --sample 20 --sampling kennard-stone --seed 42
+  python 01_gen_sample.py --no-sample
+  python 01_gen_sample.py --dry-run
+  python 01_gen_sample.py --pick 1abc --protonate --ph 7.4
 """
 
 import argparse
@@ -29,7 +24,8 @@ _root = _here.parent
 sys.path.insert(0, str(_root))
 
 from modules.utils import load_tsv, enrich_rows
-from modules.filters import apply_all_filters
+from modules.filters import apply_quality_filters
+from modules.sequence_redundancy import apply_redundancy_filters
 from modules.sampling import run_sampling, SAMPLING_METHODS, method_label, AVAILABLE_DIMS
 from modules.export import next_run_dir, write_sample, save_run_config, link_cifs, protonate_cifs
 
@@ -38,10 +34,30 @@ from modules.export import next_run_dir, write_sample, save_run_config, link_cif
 # ---------------------------------------------------------------------------
 
 _SCRAPE_DIR    = _root.parent / "scrape_pdb_bind"
-SUMMARY_TSV    = _SCRAPE_DIR / "summary.tsv"
-FILTERED_TSV   = _SCRAPE_DIR / "filtered_systems.tsv"
+SUMMARY_TSV    = _SCRAPE_DIR / "outputs" / "summary.tsv"
+FILTERED_TSV   = _SCRAPE_DIR / "outputs" / "filtered_systems.tsv"
 FIXED_CIF_DIR  = _SCRAPE_DIR / "fixed_cif"
 OUTPUTS_DIR    = _root / "outputs"
+LOGS_DIR       = _root / "logs"
+
+
+class _Tee:
+    """Write to both stdout and a log file simultaneously."""
+    def __init__(self, log_path):
+        self._file = open(log_path, "w", encoding="utf-8")
+        self._stdout = sys.stdout
+
+    def write(self, msg):
+        self._stdout.write(msg)
+        self._file.write(msg)
+
+    def flush(self):
+        self._stdout.flush()
+        self._file.flush()
+
+    def close(self):
+        self._file.close()
+        sys.stdout = self._stdout
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +167,42 @@ def build_parser():
                           help="Max residues PDBFixer added to peptide (requires filtered_systems.tsv).")
     filt_grp.add_argument("--max-receptor-added", type=int, metavar="N",
                           help="Max residues PDBFixer added to receptor (requires filtered_systems.tsv).")
+    filt_grp.add_argument("--max-resolution", type=float, metavar="F",
+                          help="Maximum resolution in Å (e.g. --max-resolution 2.5). "
+                               "Excludes NMR/NA entries.")
+    filt_grp.add_argument("--min-resolution", type=float, metavar="F",
+                          help="Minimum resolution in Å.")
+    filt_grp.add_argument("--exclude-nmr", action="store_true",
+                          help="Exclude entries with no numeric resolution (NMR, NA).")
     filt_grp.add_argument("--exclude", metavar="FILE",
                           help="File with one pdb_id per line to exclude.")
+
+    # ---- Redundancy ----
+    red_grp = p.add_argument_group(
+        "redundancy  (applied after quality filters, before sampling)"
+    )
+    red_grp.add_argument(
+        "--seq-id-receptor",
+        choices=["strict", "medium", "lenient", "custom"],
+        metavar="PRESET",
+        help="Receptor sequence redundancy preset: strict (30%%), medium (50%%), "
+             "lenient (70%%), custom. Uses CD-HIT. Requires receptor_seq in summary.tsv.",
+    )
+    red_grp.add_argument(
+        "--seq-id-receptor-threshold", type=float, metavar="F",
+        help="Receptor identity threshold for --seq-id-receptor custom (e.g. 0.40).",
+    )
+    red_grp.add_argument(
+        "--seq-id-peptide",
+        choices=["strict", "medium", "lenient", "custom"],
+        metavar="PRESET",
+        help="Peptide sequence redundancy preset: strict (70%%), medium (80%%), "
+             "lenient (90%%), custom. Uses Biopython pairwise. Requires peptide_seq.",
+    )
+    red_grp.add_argument(
+        "--seq-id-peptide-threshold", type=float, metavar="F",
+        help="Peptide identity threshold for --seq-id-peptide custom (e.g. 0.80).",
+    )
 
     # ---- Export ----
     exp_grp = p.add_argument_group("export  (all optional; can be combined)")
@@ -198,6 +248,9 @@ def main():
         print(f"  Picked {pdb_id}")
         print_sample_summary(selected)
         run_dir = next_run_dir(OUTPUTS_DIR)
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        tee = _Tee(LOGS_DIR / f"{run_dir.name}.log")
+        sys.stdout = tee
         print(f"  Output → {run_dir}")
         write_sample(selected, run_dir)
         config = {
@@ -212,10 +265,18 @@ def main():
         }
         save_run_config(config, run_dir)
         _export_cifs(selected, run_dir, args)
+        tee.close()
         return
 
-    # Filter
-    rows = apply_all_filters(all_rows, args, FILTERED_TSV)
+    # Quality filters
+    rows = apply_quality_filters(all_rows, args, FILTERED_TSV)
+
+    if not rows:
+        print("  No entries remain after quality filtering.")
+        sys.exit(1)
+
+    # Redundancy filters
+    rows = apply_redundancy_filters(rows, args)
 
     if not rows:
         print("  No entries remain after filtering.")
@@ -241,6 +302,9 @@ def main():
 
     # Write outputs
     run_dir = next_run_dir(OUTPUTS_DIR)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    tee = _Tee(LOGS_DIR / f"{run_dir.name}.log")
+    sys.stdout = tee
     print(f"  Output → {run_dir}")
 
     write_sample(selected, run_dir)
@@ -250,6 +314,12 @@ def main():
         "sample_size":     len(selected),
         "pool_size":       len(rows),
         "sampling_method": method_label(args.sampling, args.dims) if not args.no_sample else "none",
+        "redundancy": {
+            "seq_id_receptor":           args.seq_id_receptor,
+            "seq_id_receptor_threshold": args.seq_id_receptor_threshold,
+            "seq_id_peptide":            args.seq_id_peptide,
+            "seq_id_peptide_threshold":  args.seq_id_peptide_threshold,
+        },
         "dims":            args.dims if not args.no_sample else None,
         "seed":            args.seed,
         "protonate":       args.protonate,
@@ -265,6 +335,9 @@ def main():
             "binding_type":        args.binding_type,
             "max_added":           args.max_added,
             "max_receptor_added":  args.max_receptor_added,
+            "max_resolution":      args.max_resolution,
+            "min_resolution":      args.min_resolution,
+            "exclude_nmr":         args.exclude_nmr,
             "exclude":             args.exclude,
         },
         "sources": {
@@ -275,6 +348,7 @@ def main():
     }
     save_run_config(config, run_dir)
     _export_cifs(selected, run_dir, args)
+    tee.close()
 
 
 def _export_cifs(selected, run_dir, args):

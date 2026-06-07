@@ -103,6 +103,30 @@ def filter_max_receptor_added(rows, n, filtered_tsv_path):
     return rows
 
 
+def filter_max_resolution(rows, val):
+    """Keep only entries with resolution <= val Å. NMR/NA entries are excluded."""
+    before = len(rows)
+    rows = [r for r in rows if r["_resolution"] is not None and r["_resolution"] <= val]
+    _report(f"--max-resolution {val}", before, len(rows))
+    return rows
+
+
+def filter_min_resolution(rows, val):
+    """Keep only entries with resolution >= val Å. NMR/NA entries are excluded."""
+    before = len(rows)
+    rows = [r for r in rows if r["_resolution"] is not None and r["_resolution"] >= val]
+    _report(f"--min-resolution {val}", before, len(rows))
+    return rows
+
+
+def filter_exclude_nmr(rows):
+    """Remove entries with no numeric resolution (NMR, NA)."""
+    before = len(rows)
+    rows = [r for r in rows if r["_resolution"] is not None]
+    _report("--exclude-nmr", before, len(rows))
+    return rows
+
+
 def filter_exclude(rows, exclude_path):
     exclude_path = Path(exclude_path)
     if not exclude_path.exists():
@@ -115,7 +139,7 @@ def filter_exclude(rows, exclude_path):
     return rows
 
 
-def apply_all_filters(rows, args, filtered_tsv_path):
+def apply_quality_filters(rows, args, filtered_tsv_path):
     """Apply all active filters from parsed argparse args."""
     if getattr(args, "single_chain", False):
         rows = filter_single_chain(rows)
@@ -137,6 +161,12 @@ def apply_all_filters(rows, args, filtered_tsv_path):
         rows = filter_max_added(rows, args.max_added, filtered_tsv_path)
     if getattr(args, "max_receptor_added", None) is not None:
         rows = filter_max_receptor_added(rows, args.max_receptor_added, filtered_tsv_path)
+    if getattr(args, "max_resolution", None) is not None:
+        rows = filter_max_resolution(rows, args.max_resolution)
+    if getattr(args, "min_resolution", None) is not None:
+        rows = filter_min_resolution(rows, args.min_resolution)
+    if getattr(args, "exclude_nmr", False):
+        rows = filter_exclude_nmr(rows)
     if getattr(args, "exclude", None) is not None:
         rows = filter_exclude(rows, args.exclude)
     return rows
