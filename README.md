@@ -1,6 +1,6 @@
 # PepPro
 
-A modular framework for scraping, generating, and sharing peptide–protein benchmark datasets (structure + affinity) from PDBbind or external datasets.
+A modular framework for scraping, generating, and sharing peptide–protein benchmark datasets (structure + affinity) from PDBbind with the option of adding an external dataset (curated by the user).
 
 PepPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces reproducible, diversity-aware benchmark sets ready for computational studies.
 
