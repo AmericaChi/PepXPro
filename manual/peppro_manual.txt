@@ -332,5 +332,5 @@ NOTES
 - peptide_ss_class values: helix (≥70% H), beta (≥50% E), mixed (≥20% H and ≥20% E),
   partial-helix (≥30% H), coil (>50% C), other (ambiguous partial), NA.
 - DSSP requires mkdssp binary and CCD dictionary files in:
-    /opt/miniconda3/envs/peppro/var/cache/libcifpp/
+    $CONDA_PREFIX/var/cache/libcifpp/
   (components.cif, mmcif_pdbx.dic, mmcif_ma.dic — downloaded once at setup)

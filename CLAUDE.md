@@ -88,13 +88,16 @@ python -m ipykernel install --user --name peppro --display-name "peppro"
 Note: always use `python -m pip install` (not plain `pip install`) inside the conda
 environment to avoid installing into the system Python.
 
-After creating the environment, download DSSP dictionary files (one-time):
+After creating the environment, download DSSP dictionary files (one-time).
+Run with the environment activated so `$CONDA_PREFIX` resolves correctly:
 ```bash
-mkdir -p /opt/miniconda3/envs/peppro/var/cache/libcifpp/
-curl -o /opt/miniconda3/envs/peppro/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
-curl -o /opt/miniconda3/envs/peppro/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
-curl -o /opt/miniconda3/envs/peppro/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
+conda activate peppro
+mkdir -p $CONDA_PREFIX/var/cache/libcifpp/
+curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
+curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
+curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
 ```
+Note: `components.cif` is ~400 MB — the last download takes a few minutes.
 
 ## Coding guidelines
 
