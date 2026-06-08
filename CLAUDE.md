@@ -11,7 +11,7 @@ PepPro is a modular framework for generating peptide–protein benchmark dataset
 - `gen_sample/`
   Modular benchmark/sample generation framework. Reads from `scrape_pdb_bind/outputs/`.
 
-- `pep-pro-benchmark/`
+- `pep_pro_benchmark/`
   Curated benchmark releases. Scripts in `scripts/`, versioned outputs in `v1/`, `v2/`, etc.
   Uses gen_sample modules directly — no run_XX created in gen_sample/outputs/.
   Workflow: tune parameters in gen_sample first, then run `python scripts/01_make_benchmark.py`.

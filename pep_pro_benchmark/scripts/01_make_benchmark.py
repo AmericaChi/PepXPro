@@ -1,5 +1,5 @@
 """
-01_make_benchmark.py — Generate a versioned pep-pro-benchmark release.
+01_make_benchmark.py — Generate a versioned pep_pro_benchmark release.
 
 Uses gen_sample modules directly.  No run_XX is created in gen_sample/outputs/.
 
@@ -284,7 +284,7 @@ def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate a versioned pep-pro-benchmark release.",
+        description="Generate a versioned pep_pro_benchmark release.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
