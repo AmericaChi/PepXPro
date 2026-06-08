@@ -40,6 +40,11 @@ conda install -c conda-forge -c bioconda cd-hit
 python -m pip install tmtools
 ```
 
+If you plan to use external datasets in `.xlsx` format (`00_external.py`):
+```bash
+conda install -c conda-forge openpyxl
+```
+
 ---
 
 ## Quick start

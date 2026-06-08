@@ -80,6 +80,11 @@ conda install -c conda-forge -c bioconda cd-hit
 python -m pip install tmtools
 ```
 
+Optional — only needed if using external datasets in `.xlsx` format (`00_external.py`):
+```bash
+conda install -c conda-forge openpyxl
+```
+
 To use the tutorial notebook, register the kernel once after creating the env:
 ```bash
 python -m ipykernel install --user --name peppro --display-name "peppro"
