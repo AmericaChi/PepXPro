@@ -10,7 +10,7 @@ pep_pro_benchmark/ Curated versioned benchmark releases (v1/, v2/, …).
 manual/            This file and tutorial.txt.
 
 Environment:  conda activate peppro
-              cd-hit required for --seq-id-receptor: conda install -c conda-forge cd-hit
+              cd-hit required for --seq-id-receptor: conda install -c conda-forge -c bioconda cd-hit
 
 
 ===========================================================================

@@ -71,11 +71,12 @@ conda activate peppro
 
 To create from scratch:
 ```bash
-conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source ipykernel jupyter cd-hit
+conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source ipykernel jupyter
 ```
 
-Then install pip-only packages (not available on conda):
+Then install cd-hit (bioconda) and tmtools (pip-only):
 ```bash
+conda install -c conda-forge -c bioconda cd-hit
 python -m pip install tmtools
 ```
 

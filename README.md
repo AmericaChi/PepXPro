@@ -33,9 +33,10 @@ PepPro downloads and curates peptide–protein co-crystal structures, removes se
 ```bash
 conda create -n peppro -c conda-forge python=3.12 \
     openmm matplotlib numpy pandas biopython pdbfixer \
-    scipy scikit-learn dssp pymol-open-source ipykernel jupyter cd-hit
+    scipy scikit-learn dssp pymol-open-source ipykernel jupyter
 
 conda activate peppro
+conda install -c conda-forge -c bioconda cd-hit
 python -m pip install tmtools
 ```
 
