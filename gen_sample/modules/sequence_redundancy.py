@@ -8,10 +8,10 @@ Peptide:  Biopython global pairwise alignment (Needleman-Wunsch, BLOSUM62),
 Tools: cd-hit (external binary), biopython (already in env).
 
 Presets:
-  strict  → receptor 30%, peptide 70%
+  strict  → receptor 40%, peptide 70%   (CD-HIT minimum: 40%)
   medium  → receptor 50%, peptide 80%
   lenient → receptor 70%, peptide 90%
-  custom  → user-defined thresholds
+  custom  → user-defined thresholds (receptor threshold must be >= 0.40)
 """
 
 import re
@@ -21,7 +21,7 @@ import os
 from pathlib import Path
 
 PRESETS = {
-    "strict":  {"receptor": 0.30, "peptide": 0.70},
+    "strict":  {"receptor": 0.40, "peptide": 0.70},
     "medium":  {"receptor": 0.50, "peptide": 0.80},
     "lenient": {"receptor": 0.70, "peptide": 0.90},
 }
@@ -76,7 +76,7 @@ def _cdhit_word_size(threshold):
         return 4
     if threshold >= 0.5:
         return 3
-    return 2
+    return 2  # 0.4–0.5; CD-HIT minimum supported threshold is 0.4
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +123,12 @@ def filter_receptor_redundancy(rows, threshold):
             "-T", "0",        # use all threads
             "-M", "0",        # unlimited memory
         ]
+        if threshold < 0.40:
+            raise ValueError(
+                f"cd-hit does not support thresholds below 0.40 (got {threshold:.2f}). "
+                "Use --seq-id-receptor-threshold 0.40 or higher, or use a preset "
+                "(strict=0.40, medium=0.50, lenient=0.70)."
+            )
         try:
             subprocess.run(cmd, capture_output=True, check=True)
         except subprocess.CalledProcessError as exc:
@@ -130,7 +136,7 @@ def filter_receptor_redundancy(rows, threshold):
         except FileNotFoundError:
             raise RuntimeError(
                 "cd-hit binary not found. Install with: "
-                "conda install -c bioconda cd-hit"
+                "conda install -c conda-forge cd-hit"
             )
 
         rep_ids = _parse_cdhit_clstr(fasta_out + ".clstr")

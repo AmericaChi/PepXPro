@@ -52,22 +52,43 @@ def main():
         description="Step 3: Merge filtered_systems.tsv with peptide_entries.tsv "
                     "and write summary.tsv.")
     parser.add_argument("--clean", action="store_true",
-                        help="Remove summary.tsv.")
+                        help="Remove output summary TSV.")
+    parser.add_argument("--entries", metavar="FILE", default=str(ENTRIES_TSV),
+                        help=f"peptide_entries TSV (default: {ENTRIES_TSV.name}).")
+    parser.add_argument("--filtered", metavar="FILE", default=str(FILTERED_TSV),
+                        help=f"filtered_systems TSV (default: {FILTERED_TSV.name}).")
+    parser.add_argument("--output", metavar="FILE", default=str(OUT_TSV),
+                        help=f"Output summary TSV (default: {OUT_TSV.name}).")
+    parser.add_argument("--log", metavar="FILE", default=str(LOG_FILE),
+                        help=f"Log file path.")
     args = parser.parse_args()
 
+    entries_tsv  = Path(args.entries)
+    filtered_tsv = Path(args.filtered)
+    out_tsv      = Path(args.output)
+    log_file     = Path(args.log)
+
     if args.clean:
-        if OUT_TSV.exists():
-            OUT_TSV.unlink()
-            print(f"Removed {OUT_TSV}")
+        if out_tsv.exists():
+            out_tsv.unlink()
+            print(f"Removed {out_tsv}")
         return
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    entries_map   = {r["pdb_id"]: r for r in load_tsv(ENTRIES_TSV)}
-    filtered_rows = load_tsv(FILTERED_TSV)
+    entries_rows  = load_tsv(entries_tsv)
+    entries_map   = {r["pdb_id"]: r for r in entries_rows}
+    filtered_rows = load_tsv(filtered_tsv)
     accepted      = [r for r in filtered_rows if r.get("accepted") == "Y"]
     print(f"Accepted systems: {len(accepted)}")
+
+    # Auto-detect extra columns from entries TSV beyond the standard set
+    _standard_entry_cols = {"pdb_id", "n_mer", "year", "binding_type",
+                             "dG_kcal", "dG_approx", "step1_reject", "resolution"}
+    extra_entry_cols = [c for c in (entries_rows[0].keys() if entries_rows else [])
+                        if c not in _standard_entry_cols and c not in OUT_COLS]
 
     out_rows = []
     for row in accepted:
@@ -107,6 +128,7 @@ def main():
             "peptide_ss_class":  classify_peptide_ss(
                 ss_percentages(row.get("peptide_ss_dssp", "NA"))[0],
                 ss_percentages(row.get("peptide_ss_dssp", "NA"))[1],
+                ss_percentages(row.get("peptide_ss_dssp", "NA"))[2],
             ),
             "receptor_added":   row.get("receptor_added", ""),
             "receptor_seq":     row.get("receptor_seq", ""),
@@ -116,19 +138,21 @@ def main():
             "receptor_pct_beta":   ss_percentages(row.get("receptor_ss_dssp", "NA"))[1],
             "receptor_pct_coil":   ss_percentages(row.get("receptor_ss_dssp", "NA"))[2],
             "receptor_func_class": row.get("receptor_func_class", "NA"),
+            **{c: entry.get(c, "") for c in extra_entry_cols},
         }))
 
     out_rows.sort(key=lambda x: x[0])
     rows = [r for _, r in out_rows]
 
-    save_tsv(rows, OUT_TSV, OUT_COLS)
-    print(f"Written {OUT_TSV}")
+    all_cols = OUT_COLS + extra_entry_cols
+    save_tsv(rows, out_tsv, all_cols)
+    print(f"Written {out_tsv}")
 
-    with open(LOG_FILE, "w", encoding="ascii") as fh:
+    with open(log_file, "w", encoding="ascii") as fh:
         fh.write(f"Accepted: {len(rows)}\n")
-        fh.write("\t".join(OUT_COLS) + "\n")
+        fh.write("\t".join(all_cols) + "\n")
         for r in rows[:10]:
-            fh.write("\t".join(r.get(c, "") for c in OUT_COLS) + "\n")
+            fh.write("\t".join(r.get(c, "") for c in all_cols) + "\n")
 
 
 if __name__ == "__main__":

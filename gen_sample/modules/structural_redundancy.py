@@ -1,18 +1,5 @@
-"""
-structural_redundancy.py — Structural redundancy filtering.
-
-Methods:
-  filter_tm_score_receptor   Greedy clustering by receptor TM-score (tmtools).
-  filter_irmsd_interface     Greedy clustering by binding interface RMSD.
-  apply_structural_redundancy_filters  Entry point; enforces TM-score → iRMSD order.
-
-Pipeline position: after sequence redundancy, before sampling.
-
-Notes:
-  - TM-score requires: pip install tmtools
-  - iRMSD uses positional mapping for residue correspondence (v1 simplification).
-  - iRMSD without TM-score pre-filtering produces a warning.
-"""
+import concurrent.futures
+import os
 
 import numpy as np
 from pathlib import Path
@@ -37,11 +24,6 @@ def _res_sort_key(row):
 def _receptor_chains(row):
     """'AB:440' → ['A', 'B']"""
     return list(row["receptor"].split(":")[0])
-
-
-def _peptide_chain(row):
-    """'C:8' → 'C'"""
-    return row["peptide"].split(":")[0]
 
 
 def _load_struct(pdb_id, fixed_cif_dir):
@@ -70,52 +52,14 @@ def _receptor_ca(struct, chains):
     return np.array(coords, dtype=float), "".join(seq)
 
 
-def _peptide_all_coords(struct, chain):
-    """Return (N, 3) array of all peptide heavy atom coordinates."""
-    model = struct[0]
-    coords = []
-    if chain in model:
-        for res in model[chain].get_residues():
-            for atom in res.get_atoms():
-                coords.append(atom.coord)
-    return np.array(coords, dtype=float) if coords else None
-
-
-def _kabsch(fixed, mobile):
-    """Kabsch superimposition: returns (rot, tran) for row-vector form.
-
-    Transforms mobile onto fixed:  mobile_new = mobile @ rot.T + tran
-    Both arrays shape (N, 3).
-    """
-    cf = fixed.mean(axis=0)
-    cm = mobile.mean(axis=0)
-    F = fixed  - cf
-    M = mobile - cm
-    H = M.T @ F                        # (3, 3)
-    U, _, Vt = np.linalg.svd(H)
-    d = np.linalg.det(Vt.T @ U.T)
-    D = np.diag([1.0, 1.0, d])
-    rot = Vt.T @ D @ U.T               # maps M columns → F columns
-    tran = cf - cm @ rot.T
-    return rot, tran
-
-
-def _interface_mask(ca_coords, pep_coords, dist):
-    """Boolean mask: True if CA is within dist Å of any peptide atom."""
-    diff = ca_coords[:, np.newaxis, :] - pep_coords[np.newaxis, :, :]
-    return np.sqrt((diff ** 2).sum(axis=2)).min(axis=1) < dist
-
-
-# ---------------------------------------------------------------------------
-# TM-score receptor
-# ---------------------------------------------------------------------------
-
 def filter_tm_score_receptor(rows, threshold, fixed_cif_dir):
     """Greedy TM-score clustering of receptor structures.
 
     threshold: TM-score >= threshold → redundant.  Standard: 0.5 = same fold.
     Keeps one representative per cluster (best crystallographic resolution first).
     Requires tmtools: pip install tmtools
+
+    Inner loop is parallelized across CPU cores for speed.
     """
     try:
         from tmtools import tm_align
@@ -125,7 +69,7 @@ def filter_tm_score_receptor(rows, threshold, fixed_cif_dir):
     before = len(rows)
     cache = {}
 
-    def _get(row):
+    def _load(row):
         pid = row["pdb_id"]
         if pid not in cache:
             struct = _load_struct(pid, fixed_cif_dir)
@@ -136,138 +80,62 @@ def filter_tm_score_receptor(rows, threshold, fixed_cif_dir):
                 cache[pid] = (coords, seq) if coords is not None else None
         return cache[pid]
 
+    sorted_rows = sorted(rows, key=_res_sort_key)
+
+    # Pre-load all CIFs once (IO-bound, sequential with cache)
+    print(f"  TM-score: loading {before} structures ...", end="", flush=True)
+    for row in sorted_rows:
+        _load(row)
+    n_cif = sum(1 for r in sorted_rows if cache.get(r["pdb_id"]) is not None)
+    print(f" {n_cif} CIFs found.")
+
+    def _is_redundant(coords_q, seq_q, coords_r, seq_r):
+        try:
+            res = tm_align(coords_q, coords_r, seq_q, seq_r)
+            return max(res.tm_norm_chain1, res.tm_norm_chain2) >= threshold
+        except Exception:
+            return False
+
+    n_workers = min(8, os.cpu_count() or 4)
     kept = []
-    for row in sorted(rows, key=_res_sort_key):
-        data = _get(row)
-        if data is None:
-            kept.append(row)
-            continue
-        coords_q, seq_q = data
 
-        redundant = False
-        for rep in kept:
-            rep_data = _get(rep)
-            if rep_data is None:
-                continue
-            try:
-                res = tm_align(coords_q, rep_data[0], seq_q, rep_data[1])
-                if max(res.tm_norm_chain1, res.tm_norm_chain2) >= threshold:
-                    redundant = True
-                    break
-            except Exception:
-                continue
+    with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as executor:
+        for i, row in enumerate(sorted_rows):
+            data = cache.get(row["pdb_id"])
+            if data is None:
+                kept.append(row)
+            else:
+                coords_q, seq_q = data
+                rep_datas = [cache[rep["pdb_id"]] for rep in kept
+                             if cache.get(rep["pdb_id"]) is not None]
 
-        if not redundant:
-            kept.append(row)
+                redundant = False
+                if rep_datas:
+                    futs = [
+                        executor.submit(_is_redundant, coords_q, seq_q, rd[0], rd[1])
+                        for rd in rep_datas
+                    ]
+                    for fut in concurrent.futures.as_completed(futs):
+                        if fut.result():
+                            redundant = True
+                            for f in futs:
+                                f.cancel()
+                            break
+                    concurrent.futures.wait(futs)
 
+                if not redundant:
+                    kept.append(row)
+
+            print(f"\r  TM-score: {i+1}/{before} checked, {len(kept)} kept ...",
+                  end="", flush=True)
+
+    print()
     print(f"  TM-score receptor (threshold={threshold:.2f}): "
           f"{len(kept)} of {before} entries kept ({before - len(kept)} removed)")
     return kept
 
 
-# ---------------------------------------------------------------------------
-# iRMSD interface
-# ---------------------------------------------------------------------------
-
-def filter_irmsd_interface(rows, irmsd_threshold, fixed_cif_dir, interface_dist=4.0):
-    """Greedy clustering by binding interface RMSD.
-
-    Per-pair steps:
-      1. Superimpose receptors globally (Kabsch/SVD).
-      2. Find interface residues: CA within interface_dist Å of any peptide atom.
-      3. Compute RMSD on common interface CAs (intersection of both interfaces).
-      4. Redundant if n_common >= 5 and iRMSD < irmsd_threshold.
-
-    Positional mapping is used (residues matched by array index after sorting).
-    Designed to run after TM-score filtering.
-    """
-    before = len(rows)
-    cache = {}
-
-    def _get(row):
-        pid = row["pdb_id"]
-        if pid not in cache:
-            struct = _load_struct(pid, fixed_cif_dir)
-            if struct is None:
-                cache[pid] = None
-            else:
-                ca_coords, _ = _receptor_ca(struct, _receptor_chains(row))
-                pep_coords   = _peptide_all_coords(struct, _peptide_chain(row))
-                cache[pid] = (ca_coords, pep_coords) \
-                    if (ca_coords is not None and pep_coords is not None) else None
-        return cache[pid]
-
-    def _compute(data_a, data_b):
-        ca_a, pep_a = data_a
-        ca_b, pep_b = data_b
-        n = min(len(ca_a), len(ca_b))
-        if n < 10:
-            return None, 0
-
-        # Superimpose on first n CA atoms
-        rot, tran = _kabsch(ca_a[:n], ca_b[:n])
-
-        # Apply transform to ALL of ca_b and pep_b (no in-place mutation)
-        ca_b_T   = ca_b   @ rot.T + tran
-        pep_b_T  = pep_b  @ rot.T + tran
-
-        # Interface masks
-        mask_a = _interface_mask(ca_a[:n],   pep_a,   interface_dist)
-        mask_b = _interface_mask(ca_b_T[:n], pep_b_T, interface_dist)
-        common = mask_a & mask_b
-        n_common = int(common.sum())
-
-        if n_common < 5:
-            return None, n_common
-
-        irmsd = float(np.sqrt(
-            ((ca_a[:n][common] - ca_b_T[:n][common]) ** 2).sum(axis=1).mean()
-        ))
-        return irmsd, n_common
-
-    kept = []
-    for row in sorted(rows, key=_res_sort_key):
-        data = _get(row)
-        if data is None:
-            kept.append(row)
-            continue
-
-        redundant = False
-        for rep in kept:
-            rep_data = _get(rep)
-            if rep_data is None:
-                continue
-            irmsd, _ = _compute(data, rep_data)
-            if irmsd is not None and irmsd < irmsd_threshold:
-                redundant = True
-                break
-
-        if not redundant:
-            kept.append(row)
-
-    print(f"  iRMSD interface ({interface_dist:.1f}Å def, threshold={irmsd_threshold:.1f}Å): "
-          f"{len(kept)} of {before} entries kept ({before - len(kept)} removed)")
-    return kept
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
 def apply_structural_redundancy_filters(rows, args, fixed_cif_dir):
-    """Apply structural redundancy filters: TM-score receptor → iRMSD interface."""
-    has_tm   = getattr(args, "tm_score_receptor", None) is not None
-    has_irms = getattr(args, "irmsd", None) is not None
-
-    if has_irms and not has_tm:
-        print("  Warning: --irmsd without --tm-score-receptor may give poor results "
-              "for structurally unrelated receptors.")
-
-    if has_tm:
+    if getattr(args, "tm_score_receptor", None) is not None:
         rows = filter_tm_score_receptor(rows, args.tm_score_receptor, fixed_cif_dir)
-    if has_irms:
-        rows = filter_irmsd_interface(
-            rows, args.irmsd, fixed_cif_dir,
-            interface_dist=getattr(args, "irmsd_dist", 4.0),
-        )
     return rows

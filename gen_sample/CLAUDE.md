@@ -27,7 +27,7 @@ gen_sample/
     ├── utils.py                # load_tsv, save_tsv, enrich_rows
     ├── filters.py              # quality filter functions + apply_quality_filters
     ├── sequence_redundancy.py   # CD-HIT (receptor) + Biopython pairwise (peptide)
-    ├── structural_redundancy.py # TM-score receptor (tmtools) + iRMSD interface
+    ├── structural_redundancy.py # TM-score receptor (tmtools)
     ├── sampling.py             # stratified, kennard-stone, kde, isolation-forest, cluster
     └── export.py               # write_sample, save_run_config, link_cifs
 ```
@@ -103,11 +103,8 @@ Planned: functional redundancy.
 | Flag | Description |
 |---|---|
 | `--tm-score-receptor F` | Receptor TM-score threshold (e.g. 0.5 = same fold). Requires `tmtools`. |
-| `--irmsd F` | Interface RMSD threshold in Å (e.g. 2.0). Applied after `--tm-score-receptor`. |
-| `--irmsd-dist F` | Distance in Å to define interface (default: 4.0). |
 
 Pipeline order: `quality → seq redundancy → structural redundancy → sampling`
-iRMSD uses Kabsch superimposition + positional residue mapping (v1).
 
 ## Sampling methods
 

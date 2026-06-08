@@ -1,0 +1,11 @@
+{
+  "pdb_id": "PDB ID",
+  "dg_exp": "ΔG (kcal/mol)",
+  "dg_calc": "Calculated ΔG (kcal/mol)",
+  "kd": "KD (M)",
+  "n_mer": "Peptide Length",
+  "peptide_seq": "Peptide Sequence",
+  "resolution": null,
+  "year": null,
+  "temperature": "T (K)"
+}

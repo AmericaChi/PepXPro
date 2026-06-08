@@ -132,36 +132,48 @@ def main():
     parser = argparse.ArgumentParser(
         description="Step 2: Filter entries, check AMBER14 compatibility, write fixed CIFs.")
     parser.add_argument("--clean", action="store_true",
-                        help="Remove filtered_systems.tsv and fixed_cif/.")
+                        help="Remove output TSV and fixed_cif/ (default output only).")
     parser.add_argument("--force", action="store_true",
                         help="Ignore the existing cache and reprocess all entries from scratch.")
+    parser.add_argument("--input", metavar="FILE", default=str(IN_TSV),
+                        help=f"Input peptide_entries TSV (default: {IN_TSV.name}).")
+    parser.add_argument("--output", metavar="FILE", default=str(OUT_TSV),
+                        help=f"Output filtered_systems TSV (default: {OUT_TSV.name}).")
+    parser.add_argument("--log", metavar="FILE", default=str(LOG_FILE),
+                        help=f"Log file path (default: {LOG_FILE.name}).")
     args = parser.parse_args()
 
+    in_tsv   = Path(args.input)
+    out_tsv  = Path(args.output)
+    log_file = Path(args.log)
+
     if args.clean:
-        if OUT_TSV.exists():
-            OUT_TSV.unlink()
-            print(f"Removed {OUT_TSV}")
-        if FIXED_DIR.exists():
+        if out_tsv.exists():
+            out_tsv.unlink()
+            print(f"Removed {out_tsv}")
+        # Only remove fixed_cif/ when using the default output path
+        if out_tsv == OUT_TSV and FIXED_DIR.exists():
             shutil.rmtree(FIXED_DIR)
             print(f"Removed {FIXED_DIR}/")
         return
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # Load existing results before opening OUT_TSV for writing
+    # Load existing results before opening out_tsv for writing
     if args.force:
         cache = {}
         print("  --force: ignoring existing cache, reprocessing all entries.")
     else:
-        cache = _load_cache(OUT_TSV)
+        cache = _load_cache(out_tsv)
         if cache:
             n_acc = sum(1 for r in cache.values() if r.get("accepted") == "Y")
             n_rej = len(cache) - n_acc
             print(f"  Cache loaded: {n_acc} accepted, {n_rej} rejected ({len(cache)} total).")
 
-    print(f"Reading {IN_TSV} ...")
-    entries = load_entries(IN_TSV)
+    print(f"Reading {in_tsv} ...")
+    entries = load_entries(in_tsv)
     print(f"  {len(entries)} entries to process")
 
     accepted_count = 0
@@ -170,8 +182,8 @@ def main():
     patched_count  = 0
     n_total = len(entries)
 
-    with open(OUT_TSV, "w", encoding="ascii") as tsv_fh, \
-         open(LOG_FILE, "w", encoding="ascii") as log_fh:
+    with open(out_tsv, "w", encoding="ascii") as tsv_fh, \
+         open(log_file, "w", encoding="ascii") as log_fh:
 
         tsv_fh.write("\t".join(OUT_COLS) + "\n")
 
@@ -280,8 +292,8 @@ def main():
     print(f"\nDone. accepted={accepted_count} rejected={rejected_count} "
           f"total={accepted_count + rejected_count} "
           f"(cached={cached_count}  patched={patched_count}  new={new_count})")
-    print(f"Written {OUT_TSV}")
-    print(f"Log: {LOG_FILE}")
+    print(f"Written {out_tsv}")
+    print(f"Log: {log_file}")
 
 
 if __name__ == "__main__":

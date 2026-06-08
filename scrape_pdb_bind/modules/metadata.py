@@ -203,6 +203,58 @@ def classify_receptor_function(description):
     return "other"
 
 
+def extract_deposition_year(cif_path):
+    """Extract publication/deposition year from an assembly CIF.
+
+    Tries _citation.year first (present in all assembly CIFs).
+    Falls back to _pdbx_database_status.recvd_initial_deposition_date.
+    Returns 4-digit year string ('2010') or 'NA'.
+    """
+    import re as _re
+    from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+    try:
+        d = MMCIF2Dict(str(cif_path))
+        for key in ("_citation.year",
+                    "_pdbx_database_status.recvd_initial_deposition_date"):
+            val = d.get(key)
+            if not val:
+                continue
+            v = val[0] if isinstance(val, list) else val
+            m = _re.search(r'\b(19|20)\d{2}\b', str(v))
+            if m:
+                return m.group(0)
+    except Exception:
+        pass
+    return "NA"
+
+
+def fetch_resolution_rcsb(pdb_id):
+    """Query RCSB REST API for crystallographic resolution.
+
+    Used as fallback when assembly CIFs lack _refine.ls_d_res_high.
+    Returns '1.80' or 'NA'. Makes one HTTP request per call.
+    """
+    import urllib.request
+    import json
+    url = f"https://data.rcsb.org/rest/v1/core/entry/{pdb_id.lower()}"
+    try:
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        # rcsb_entry_info.resolution_combined is a list; take the first
+        combined = data.get("rcsb_entry_info", {}).get("resolution_combined")
+        if combined:
+            return f"{float(combined[0]):.2f}"
+        # Fallback: refine block
+        refine = data.get("refine")
+        if refine:
+            val = refine[0].get("ls_d_res_high")
+            if val is not None:
+                return f"{float(val):.2f}"
+    except Exception:
+        pass
+    return "NA"
+
+
 def extract_receptor_description(cif_path, receptor_chain_ids):
     """Return the PDB entity description for the first receptor chain.
 
@@ -233,19 +285,18 @@ def extract_receptor_description(cif_path, receptor_chain_ids):
     return "NA"
 
 
-def classify_peptide_ss(pct_helix_str, pct_beta_str):
-    """Classify peptide secondary structure into 5 categories.
+def classify_peptide_ss(pct_helix_str, pct_beta_str, pct_coil_str=""):
+    """Classify peptide secondary structure into 6 categories.
 
     Categories (priority order):
       helix         pct_helix >= 0.70
       beta          pct_beta  >= 0.50
       mixed         pct_helix >= 0.20 AND pct_beta >= 0.20
       partial-helix pct_helix >= 0.30
-      other         coil-dominated or NA
+      coil          pct_coil  >  0.50
+      other         none of the above (ambiguous partial structure)
 
-    The beta-sheet binding-induced vs self-folding distinction requires
-    unbound structure data (not available); both are collapsed into 'beta'.
-    Returns one of: 'helix', 'partial-helix', 'beta', 'mixed', 'other', 'NA'.
+    Returns one of: 'helix', 'partial-helix', 'beta', 'mixed', 'coil', 'other', 'NA'.
     """
     try:
         h = float(pct_helix_str)
@@ -260,6 +311,12 @@ def classify_peptide_ss(pct_helix_str, pct_beta_str):
         return "mixed"
     if h >= 0.30:
         return "partial-helix"
+    try:
+        c = float(pct_coil_str)
+    except (ValueError, TypeError):
+        c = 1.0 - h - e
+    if c > 0.50:
+        return "coil"
     return "other"
 
 

@@ -84,11 +84,24 @@ def main():
         description="Plot filtering and sampling distribution for a single run.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--run", required=True, metavar="RUN_DIR",
-                        help="Run directory name, e.g. run_01")
+    parser.add_argument("--run", metavar="RUN_DIR",
+                        help="Run directory name inside gen_sample/outputs/, e.g. run_01")
+    parser.add_argument("--run-dir", metavar="PATH",
+                        help="Full path to any directory containing pool_quality.tsv, "
+                             "pool_redundancy.tsv, and sample.tsv.")
+    parser.add_argument("--dims", nargs=2, metavar=("DIM_X", "DIM_Y"),
+                        help="Override sampling dims from run_config (e.g. --dims dg ss_class).")
+    parser.add_argument("--output", metavar="FILE",
+                        help="Override output path (default: run_XX/plots/run_comparison[_dimx_dimy].png).")
     args = parser.parse_args()
 
-    run_dir = OUTPUTS_DIR / args.run
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+    elif args.run:
+        run_dir = OUTPUTS_DIR / args.run
+    else:
+        parser.error("one of --run or --run-dir is required")
+
     if not run_dir.exists():
         print(f"  Error: {run_dir} not found.")
         sys.exit(1)
@@ -97,16 +110,17 @@ def main():
     redundancy_rows = _load(run_dir / "pool_redundancy.tsv", "pool_redundancy.tsv")
     sample_rows     = _load(run_dir / "sample.tsv",          "sample.tsv")
 
-    # Read sampling method and dims from run_config.json
+    # Read sampling method and dims from run_config.json (--dims overrides)
     config_path = run_dir / "run_config.json"
     sampling_method = "unknown"
-    dims = ["dg", "pep_len"]
+    dims_config = ["dg", "pep_len"]
     if config_path.exists():
         with open(config_path, encoding="ascii") as fh:
             cfg = json.load(fh)
         sampling_method = cfg.get("sampling_method", "unknown")
-        dims = cfg.get("dims") or ["dg", "pep_len"]
+        dims_config = cfg.get("dims") or ["dg", "pep_len"]
 
+    dims  = list(args.dims) if args.dims else dims_config
     dim_x = dims[0] if len(dims) >= 1 else "dg"
     dim_y = dims[1] if len(dims) >= 2 else "pep_len"
 
@@ -187,9 +201,14 @@ def main():
     fig.suptitle(f"{args.run} — pool filtering and sampling", fontsize=12)
     fig.tight_layout()
 
-    plots_dir = run_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
-    out = plots_dir / "run_comparison.png"
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        plots_dir = run_dir / "plots"
+        plots_dir.mkdir(parents=True, exist_ok=True)
+        suffix = f"_{dim_x}_{dim_y}" if args.dims else ""
+        out = plots_dir / f"run_comparison{suffix}.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"  Saved {out}")
     plt.close(fig)

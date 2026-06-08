@@ -33,7 +33,7 @@ def parse_peptide(peptide_str):
     return parts[0], int(parts[1])
 
 
-SS_CLASS_ORDER   = ["helix", "partial-helix", "beta", "mixed", "other"]
+SS_CLASS_ORDER   = ["helix", "partial-helix", "beta", "mixed", "coil", "other"]
 FUNC_CLASS_ORDER = ["enzyme", "chaperone", "structural", "signal",
                     "regulatory", "peptide-binding", "other"]
 
@@ -54,6 +54,11 @@ def enrich_rows(rows):
             r["_resolution"] = float(res_raw)
         except (ValueError, TypeError):
             r["_resolution"] = None
+        # Year: int if numeric, None if NA/missing
+        try:
+            r["_year"] = int(r.get("year", "NA"))
+        except (ValueError, TypeError):
+            r["_year"] = None
         # SS class: ordinal int for sampling, None if NA
         ss_class = r.get("peptide_ss_class", "NA")
         try:

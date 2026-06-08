@@ -152,8 +152,8 @@ def build_parser():
 
     # ---- Filters ----
     filt_grp = p.add_argument_group("filters  (applied before sampling; all optional)")
-    filt_grp.add_argument("--single-chain", action=argparse.BooleanOptionalAction, default=True,
-                          help="Keep only single receptor-chain entries (default: on).")
+    filt_grp.add_argument("--single-chain", action=argparse.BooleanOptionalAction, default=False,
+                          help="Keep only single receptor-chain entries (default: off).")
     filt_grp.add_argument("--min-receptor", type=int, metavar="N",
                           help="Minimum receptor residue count.")
     filt_grp.add_argument("--max-receptor", type=int, metavar="N",
@@ -179,6 +179,11 @@ def build_parser():
                           help="Minimum resolution in Å.")
     filt_grp.add_argument("--exclude-nmr", action="store_true",
                           help="Exclude entries with no numeric resolution (NMR, NA).")
+    filt_grp.add_argument("--min-year", type=int, metavar="N",
+                          help="Minimum deposition year (e.g. --min-year 2000). "
+                               "Excludes entries with NA year.")
+    filt_grp.add_argument("--max-year", type=int, metavar="N",
+                          help="Maximum deposition year.")
     filt_grp.add_argument("--exclude", metavar="FILE",
                           help="File with one pdb_id per line to exclude.")
 
@@ -190,8 +195,9 @@ def build_parser():
         "--seq-id-receptor",
         choices=["strict", "medium", "lenient", "custom"],
         metavar="PRESET",
-        help="Receptor sequence redundancy preset: strict (30%%), medium (50%%), "
-             "lenient (70%%), custom. Uses CD-HIT. Requires receptor_seq in summary.tsv.",
+        help="Receptor sequence redundancy preset: strict (40%%), medium (50%%), "
+             "lenient (70%%), custom. Uses CD-HIT (min threshold: 40%%). "
+             "Requires receptor_seq in summary.tsv.",
     )
     red_grp.add_argument(
         "--seq-id-receptor-threshold", type=float, metavar="F",
@@ -218,21 +224,21 @@ def build_parser():
         help="Receptor TM-score threshold (e.g. 0.5). Pairs >= threshold are redundant. "
              "Recommended: 0.5 = same fold. Requires tmtools (pip install tmtools).",
     )
-    struct_grp.add_argument(
-        "--irmsd", type=float, metavar="F",
-        help="Interface RMSD threshold in Å (e.g. 2.0). Applied after --tm-score-receptor. "
-             "Interface: receptor CA within --irmsd-dist Å of any peptide atom.",
-    )
-    struct_grp.add_argument(
-        "--irmsd-dist", type=float, default=4.0, metavar="F",
-        help="Distance in Å to define binding interface for iRMSD (default: 4.0).",
-    )
+
+    # ---- Input ----
+    inp_grp = p.add_argument_group("input")
+    inp_grp.add_argument("--summary-tsv", metavar="FILE", default=str(SUMMARY_TSV),
+                         help="Path to summary TSV. Use summary_merged.tsv to include "
+                              "external datasets (default: scrape_pdb_bind/outputs/summary.tsv).")
 
     # ---- Output ----
     out_grp = p.add_argument_group("output")
     out_grp.add_argument("--no-save-pools", action="store_true",
                          help="Do not save pool_quality.tsv and pool_redundancy.tsv "
                               "in the run directory (saved by default).")
+    out_grp.add_argument("--full-metadata", action="store_true",
+                         help="Write all columns from summary.tsv to sample.tsv "
+                              "(default: compact summary columns only).")
 
     # ---- Export ----
     exp_grp = p.add_argument_group("export  (all optional; can be combined)")
@@ -262,21 +268,24 @@ def main():
         if d not in AVAILABLE_DIMS:
             parser.error(f"Unknown dimension '{d}'. Available: {', '.join(AVAILABLE_DIMS)}")
 
-    if not SUMMARY_TSV.exists():
-        print(f"  Error: {SUMMARY_TSV} not found — run scrape_pdb_bind steps 1-3 first.")
+    summary_tsv = Path(args.summary_tsv)
+    if not summary_tsv.exists():
+        print(f"  Error: {summary_tsv} not found — run scrape_pdb_bind steps 1-3 first.")
         sys.exit(1)
 
     # Load and enrich
-    all_rows = load_tsv(SUMMARY_TSV)
+    all_rows = load_tsv(summary_tsv)
+    # Capture public column order before enrich_rows adds _ private keys
+    full_cols = [k for k in all_rows[0]] if all_rows else None
     all_rows = enrich_rows(all_rows)
-    print(f"  Loaded {len(all_rows)} entries from {SUMMARY_TSV}")
+    print(f"  Loaded {len(all_rows)} entries from {summary_tsv}")
 
     # --pick: bypass filters and sampling entirely
     if args.pick:
         pdb_id = args.pick.lower()
         match = [r for r in all_rows if r["pdb_id"] == pdb_id]
         if not match:
-            print(f"  Error: '{pdb_id}' not found in {SUMMARY_TSV}.")
+            print(f"  Error: '{pdb_id}' not found in {summary_tsv}.")
             sys.exit(1)
         selected = match
         print(f"  Picked {pdb_id}")
@@ -286,14 +295,15 @@ def main():
         tee = _Tee(LOGS_DIR / f"{run_dir.name}.log")
         sys.stdout = tee
         print(f"  Output → {run_dir}")
-        write_sample(selected, run_dir)
+        write_sample(selected, run_dir,
+                     columns=full_cols if args.full_metadata else None)
         config = {
             "mode": "pick",
             "pdb_id": pdb_id,
             "protonate": args.protonate,
             "ph": args.ph if args.protonate else None,
             "sources": {
-                "summary_tsv":   str(SUMMARY_TSV),
+                "summary_tsv":   str(summary_tsv),
                 "fixed_cif_dir": str(FIXED_CIF_DIR),
             },
         }
@@ -316,7 +326,7 @@ def main():
         print("  No entries remain after sequence redundancy filtering.")
         sys.exit(1)
 
-    # Structural redundancy (TM-score → iRMSD)
+    # Structural redundancy
     pool_redundancy = apply_structural_redundancy_filters(pool_seq, args, FIXED_CIF_DIR)
 
     if not pool_redundancy:
@@ -356,7 +366,8 @@ def main():
     selected.sort(key=lambda r: r["_dg"])
     print_sample_summary(selected)
 
-    write_sample(selected, run_dir)
+    write_sample(selected, run_dir,
+                 columns=full_cols if args.full_metadata else None)
 
     config = {
         "mode":            "pick" if args.pick else ("no-sample" if args.no_sample else "sample"),

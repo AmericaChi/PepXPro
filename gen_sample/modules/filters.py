@@ -119,6 +119,22 @@ def filter_min_resolution(rows, val):
     return rows
 
 
+def filter_min_year(rows, val):
+    """Keep only entries with deposition year >= val. Entries with NA year are excluded."""
+    before = len(rows)
+    rows = [r for r in rows if r.get("_year") is not None and r["_year"] >= val]
+    _report(f"--min-year {val}", before, len(rows))
+    return rows
+
+
+def filter_max_year(rows, val):
+    """Keep only entries with deposition year <= val. Entries with NA year are excluded."""
+    before = len(rows)
+    rows = [r for r in rows if r.get("_year") is not None and r["_year"] <= val]
+    _report(f"--max-year {val}", before, len(rows))
+    return rows
+
+
 def filter_exclude_nmr(rows):
     """Remove entries with no numeric resolution (NMR, NA)."""
     before = len(rows)
@@ -167,6 +183,10 @@ def apply_quality_filters(rows, args, filtered_tsv_path):
         rows = filter_min_resolution(rows, args.min_resolution)
     if getattr(args, "exclude_nmr", False):
         rows = filter_exclude_nmr(rows)
+    if getattr(args, "min_year", None) is not None:
+        rows = filter_min_year(rows, args.min_year)
+    if getattr(args, "max_year", None) is not None:
+        rows = filter_max_year(rows, args.max_year)
     if getattr(args, "exclude", None) is not None:
         rows = filter_exclude(rows, args.exclude)
     return rows

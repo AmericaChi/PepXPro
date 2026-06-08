@@ -25,3 +25,6 @@ sample.tsv
 # Outputs
 outputs/
 **/outputs/
+
+# Dataset externo
+doi_10_5061_dryad_wstqjq2wk__v20250617/
