@@ -1,9 +1,10 @@
 # PepPro
 
-A modular framework for scraping, generating, and sharing peptide–protein benchmark datasets (structure + affinity) from PDBbind with the option of adding an external dataset (curated by the user).
+A modular framework for scraping, generating, and sharing diverse peptide–protein benchmark datasets (structure + affinity) from PDBbind with the option of adding an external dataset (curated by the user).
 
-PepPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces reproducible, diversity-aware benchmark sets ready for computational studies.
+PepPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces user-customizable, reproducible, diversity-aware benchmark sets ready for MD, Docking, AF-monomer benchmark, ML studies, or other potential studies.
 
+PepPro also provides a diverse version (pep_pro_benchmark/v1) curated by the authors to maximize structural, sequence, and functional diversity from the current dataset.
 ---
 
 ## Features
@@ -13,7 +14,7 @@ PepPro downloads and curates peptide–protein co-crystal structures, removes se
 - Removes structural redundancy (TM-score receptor clustering, parallelized)
 - Five sampling methods: stratified, Kennard-Stone, KDE, isolation forest, cluster
 - Exports CIF and PDB structures, FASTA sequences, and full metadata TSVs
-- Versioned benchmark releases with full provenance and reproducibility
+- Versioned diverse benchmark releases with full provenance and reproducibility
 
 ---
 
@@ -23,7 +24,7 @@ PepPro downloads and curates peptide–protein co-crystal structures, removes se
 |---|---|
 | `scrape_pdb_bind/` | Download, filter, and prepare CIFs from PDBbind and external sources |
 | `gen_sample/` | Filter, deduplicate, sample, and export dataset subsets |
-| `pep_pro_benchmark/` | Curated, versioned benchmark releases (`v1/`, `v2/`, …) |
+| `pep_pro_benchmark/` | Curated, versioned diverse benchmark releases (`v1/`, `v2/`, …) |
 | `manual/` | User manual and interactive tutorial notebook |
 
 ---
