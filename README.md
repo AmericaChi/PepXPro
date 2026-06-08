@@ -4,7 +4,8 @@ A modular framework for scraping, generating, and sharing diverse peptide–prot
 
 PepPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces user-customizable, reproducible, diversity-aware benchmark sets ready for MD, Docking, AF-monomer benchmark, ML studies, or other potential studies.
 
-PepPro also provides a diverse version (pep_pro_benchmark/v1) curated by the authors to maximize structural, sequence, and functional diversity from the current dataset.
+PepPro also provides a diverse version (v1), curated by the authors, to maximize structural, sequence, and functional diversity within the current dataset.
+
 ---
 
 ## Features
