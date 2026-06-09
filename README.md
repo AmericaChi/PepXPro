@@ -32,21 +32,37 @@ PepPro also provides a diverse version (v1), curated by the authors, to maximize
 
 ## Requirements
 
+Create the environment:
+
 ```bash
 conda create -n peppro -c conda-forge python=3.12 \
     openmm matplotlib numpy pandas biopython pdbfixer \
-    scipy scikit-learn dssp pymol-open-source ipykernel jupyter
+    scipy scikit-learn dssp pymol-open-source ipykernel jupyter openpyxl
+```
 
+Activate the environment:
+
+```bash
 conda activate peppro
+```
+
+Install additional dependencies:
+
+```bash
 conda install -c conda-forge -c bioconda cd-hit
 python -m pip install tmtools
 ```
 
-If you plan to use external datasets in `.xlsx` format (`00_external.py`):
+After creating the environment, download DSSP dictionary files (one-time).
+Run with the environment activated so `$CONDA_PREFIX` resolves correctly:
 ```bash
-conda install -c conda-forge openpyxl
+conda activate peppro
+mkdir -p $CONDA_PREFIX/var/cache/libcifpp/
+curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
+curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
+curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
 ```
-
+Note: `components.cif` is ~400 MB — the last download takes a few minutes.
 ---
 
 ## Quick start
@@ -63,7 +79,7 @@ python    04_distributions.py
 
 # 2. Generate a sample
 cd ../../gen_sample/scripts
-python 01_gen_sample.py --sample 50 --sampling kennard-stone \
+python 01_gen_sample.py --sample 20 --sampling kennard-stone \
     --seq-id-receptor strict --seq-id-peptide strict \
     --tm-score-receptor 0.5 --dims dg ss_class func_class \
     --export-fasta --copy-cifs --seed 42
