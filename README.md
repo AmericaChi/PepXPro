@@ -63,6 +63,7 @@ curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/di
 curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
 ```
 Note: `components.cif` is ~400 MB — the last download takes a few minutes.
+
 ---
 
 ## Quick start
