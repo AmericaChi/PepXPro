@@ -5,12 +5,12 @@ Modular pipeline for downloading, filtering, and preparing peptide–protein sys
 ## Environment
 
 ```bash
-conda activate peppro
+conda activate pepxpro
 ```
 
 To create from scratch:
 ```bash
-conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn pymol-open-source
+conda create -n pepxpro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn pymol-open-source
 ```
 
 Key packages: `biopython` (MMCIF2Dict), `openmm` (PDBxFile, Modeller), `pdbfixer`, `scipy` (cKDTree), `numpy`, `matplotlib`.

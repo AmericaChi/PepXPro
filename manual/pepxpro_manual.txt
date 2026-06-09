@@ -1,4 +1,4 @@
-PepPro Manual
+PepXPro Manual
 =============
 Modular framework for generating peptide-protein benchmark datasets from PDBbind.
 
@@ -6,10 +6,10 @@ REPOSITORY LAYOUT
 -----------------
 scrape_pdb_bind/   Download, filter, and prepare CIFs from PDBbind + external datasets.
 gen_sample/        Filter, deduplicate, sample, and export datasets.
-pep_pro_benchmark/ Curated versioned benchmark releases (v1/, v2/, …).
+pepxpro_benchmark/ Curated versioned benchmark releases (v1/, v2/, …).
 manual/            This file and tutorial.txt.
 
-Environment:  conda activate peppro
+Environment:  conda activate pepxpro
               cd-hit required for --seq-id-receptor: conda install -c conda-forge -c bioconda cd-hit
               openpyxl optional, required for .xlsx external datasets: conda install -c conda-forge openpyxl
 
@@ -215,7 +215,7 @@ FLAGS
 -----
 --run RUN_DIR       Run directory name inside gen_sample/outputs/, e.g. run_01.
 --run-dir PATH      Full path to any directory with pool_quality.tsv,
-                    pool_redundancy.tsv, and sample.tsv (e.g. pep_pro_benchmark/v1/).
+                    pool_redundancy.tsv, and sample.tsv (e.g. pepxpro_benchmark/v1/).
 --dims DIM_X DIM_Y  Override dims from run_config.json (e.g. --dims dg ss_class).
                     Output filename includes dims: run_comparison_dg_ss_class.png
 --output FILE       Override output path.
@@ -225,7 +225,7 @@ USAGE EXAMPLES
 python 03_compare_runs.py --run run_01
 python 03_compare_runs.py --run run_01 --dims dg ss_class
 python 03_compare_runs.py --run run_01 --dims dg func_class
-python 03_compare_runs.py --run-dir ../../pep_pro_benchmark/v1 --dims dg ss_class
+python 03_compare_runs.py --run-dir ../../pepxpro_benchmark/v1 --dims dg ss_class
 
 
 ===========================================================================
@@ -265,7 +265,7 @@ python 05_view_sample.py --run 3 --cif-dir cif
 
 
 ===========================================================================
-PIPELINE: pep_pro_benchmark/
+PIPELINE: pepxpro_benchmark/
 ===========================================================================
 Curated, versioned benchmark releases. Each version is a self-contained
 directory (v1/, v2/, …) with structures, sequences, metadata, and plots.
@@ -276,13 +276,13 @@ Intended workflow:
   1. Tune parameters using gen_sample/01_gen_sample.py (--dry-run, --sample)
   2. Once parameters are final, run the benchmark script for a reproducible release.
 
-  conda activate peppro
-  cd pep_pro_benchmark/scripts
-  python 01_make_benchmark.py              # creates pep_pro_benchmark/v1/
+  conda activate pepxpro
+  cd pepxpro_benchmark/scripts
+  python 01_make_benchmark.py              # creates pepxpro_benchmark/v1/
   python 01_make_benchmark.py --dry-run    # pool stats only, nothing written
   python 01_make_benchmark.py --version v2 # explicit version label
 
-OUTPUT (pep_pro_benchmark/vN/)
+OUTPUT (pepxpro_benchmark/vN/)
 ------------------------------
 sample.tsv                 Selected entries, full metadata.
 run_config.json            All parameters (filters, sampling, seed, sources).
@@ -312,7 +312,7 @@ VISUALIZING A BENCHMARK VERSION
 ---------------------------------
 Use 05_view_sample.py from gen_sample with --cif-dir pointing to the benchmark:
   cd gen_sample/scripts
-  python 05_view_sample.py --run-dir ../../pep_pro_benchmark/v1 --cif-dir cif
+  python 05_view_sample.py --run-dir ../../pepxpro_benchmark/v1 --cif-dir cif
 
 (05_view_sample.py does not yet support --run-dir; use --cif-dir with any run
 that shares the same sample.tsv, or run gen_sample once with --link-cifs
@@ -324,7 +324,7 @@ NOTES
 ===========================================================================
 - Run scrape_pdb_bind scripts from scrape_pdb_bind/scripts/.
 - Run gen_sample scripts from gen_sample/scripts/.
-- Conda environment: conda activate peppro
+- Conda environment: conda activate pepxpro
 - run_config.json records every parameter for full reproducibility.
 - Large output files (CIFs, PDBs, plots) are not tracked by git.
 - --protonate does not strip existing hydrogens; fills missing ones only.

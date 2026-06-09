@@ -1,5 +1,5 @@
 """
-01_make_benchmark.py — Generate a versioned pep_pro_benchmark release.
+01_make_benchmark.py — Generate a versioned pepxpro_benchmark release.
 
 Uses gen_sample modules directly.  No run_XX is created in gen_sample/outputs/.
 
@@ -231,7 +231,7 @@ def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
     n_cif = len(list((version_dir / "cif").glob("*.cif"))) if (version_dir / "cif").exists() else 0
 
     lines = [
-        f"PepPro Benchmark — {version_dir.name}",
+        f"PepXPro Benchmark — {version_dir.name}",
         "=" * 42,
         f"Generated : {date.today().isoformat()}",
         "",
@@ -284,7 +284,7 @@ def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Generate a versioned pep_pro_benchmark release.",
+        description="Generate a versioned pepxpro_benchmark release.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -295,7 +295,7 @@ def main():
     args = parser.parse_args()
 
     if args.dry_run:
-        print("PepPro Benchmark — dry run")
+        print("PepXPro Benchmark — dry run")
         run_pipeline(None, dry_run=True)
         return
 
@@ -307,7 +307,7 @@ def main():
     else:
         version_dir = next_version_dir()
 
-    print(f"PepPro Benchmark Builder")
+    print(f"PepXPro Benchmark Builder")
     print(f"  Version : {version_dir.name}")
     print(f"  Output  : {version_dir}")
     print()

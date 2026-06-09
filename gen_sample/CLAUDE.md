@@ -6,7 +6,7 @@ from the outputs of `scrape_pdb_bind`.
 ## Environment
 
 ```bash
-conda activate peppro
+conda activate pepxpro
 ```
 
 `isolation-forest` and `cluster` sampling require `scikit-learn` (included in the env).

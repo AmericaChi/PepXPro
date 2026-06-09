@@ -1,5 +1,5 @@
 """
-00_external.py — Integrate an external peptide-protein dataset into PepPro.
+00_external.py — Integrate an external peptide-protein dataset into PepXPro.
 
 Parses an external file (xlsx/tsv/csv), normalizes affinity data,
 deduplicates against PDBbind, downloads CIFs, runs the filter+summary
@@ -493,7 +493,7 @@ def merge_summaries(std_tsv, ext_tsvs, merged_tsv):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Integrate an external dataset into the PepPro pipeline.",
+        description="Integrate an external dataset into the PepXPro pipeline.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

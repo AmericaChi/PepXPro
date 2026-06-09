@@ -1,10 +1,10 @@
-PepPro Tutorial
+PepXPro Tutorial
 ===============
 End-to-end walkthrough of the pipeline and six application workflows.
 Audience: computational biologists familiar with protein structure and MD/docking tools.
 
-All commands assume the peppro conda environment is active:
-  conda activate peppro
+All commands assume the pepxpro conda environment is active:
+  conda activate pepxpro
 
 Contents
 --------
@@ -27,9 +27,9 @@ Contents
 PART 1 — FULL PIPELINE WALKTHROUGH
 =============================================================================
 
-What PepPro does
+What PepXPro does
 ----------------
-PepPro extracts all peptide-protein co-crystal structures from PDBbind, fixes
+PepXPro extracts all peptide-protein co-crystal structures from PDBbind, fixes
 them (missing residues, AMBER14 compatibility), annotates them (sequences, SS,
 functional class, affinity), and exposes a flexible sampling pipeline to build
 reproducible, diversity-aware benchmark datasets.
@@ -87,7 +87,7 @@ STEP 4 — Distributions (optional)
 
 --- 1.2  Adding an external dataset (optional) ---
 
-PepPro can integrate any external affinity dataset (xlsx, tsv, csv) alongside
+PepXPro can integrate any external affinity dataset (xlsx, tsv, csv) alongside
 PDBbind. The example below uses PEPBI (Dryad, doi:10.5061/dryad.wstqjq2wk).
 
   cd scrape_pdb_bind/scripts

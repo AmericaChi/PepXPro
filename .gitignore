@@ -19,7 +19,7 @@ __pycache__/
 **/samples/
 sample.tsv
 # Allow curated benchmark sample.tsv files
-!pep_pro_benchmark/**/sample.tsv
+!pepxpro_benchmark/**/sample.tsv
 
 #Claude
 .claude/

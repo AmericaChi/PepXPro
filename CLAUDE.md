@@ -1,6 +1,6 @@
-# PepPro
+# PepXPro
 
-PepPro is a modular framework for generating peptide–protein benchmark datasets from PDBbind.
+PepXPro is a modular framework for generating peptide–protein benchmark datasets from PDBbind.
 
 ## Repository structure
 
@@ -11,13 +11,13 @@ PepPro is a modular framework for generating peptide–protein benchmark dataset
 - `gen_sample/`
   Modular benchmark/sample generation framework. Reads from `scrape_pdb_bind/outputs/`.
 
-- `pep_pro_benchmark/`
+- `pepxpro_benchmark/`
   Curated benchmark releases. Scripts in `scripts/`, versioned outputs in `v1/`, `v2/`, etc.
   Uses gen_sample modules directly — no run_XX created in gen_sample/outputs/.
   Workflow: tune parameters in gen_sample first, then run `python scripts/01_make_benchmark.py`.
 
 - `manual/`
-  Comprehensive user manual: `peppro_manual.txt`.
+  Comprehensive user manual: `pepxpro_manual.txt`.
 
 ## Development philosophy
 
@@ -66,12 +66,12 @@ Large generated files should not be tracked by git.
 
 Activate before running any scripts:
 ```bash
-conda activate peppro
+conda activate pepxpro
 ```
 
 To create from scratch:
 ```bash
-conda create -n peppro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source ipykernel jupyter
+conda create -n pepxpro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source ipykernel jupyter
 ```
 
 Then install cd-hit (bioconda) and tmtools (pip-only):
@@ -87,7 +87,7 @@ conda install -c conda-forge openpyxl
 
 To use the tutorial notebook, register the kernel once after creating the env:
 ```bash
-python -m ipykernel install --user --name peppro --display-name "peppro"
+python -m ipykernel install --user --name pepxpro --display-name "pepxpro"
 ```
 
 Note: always use `python -m pip install` (not plain `pip install`) inside the conda
@@ -96,7 +96,7 @@ environment to avoid installing into the system Python.
 After creating the environment, download DSSP dictionary files (one-time).
 Run with the environment activated so `$CONDA_PREFIX` resolves correctly:
 ```bash
-conda activate peppro
+conda activate pepxpro
 mkdir -p $CONDA_PREFIX/var/cache/libcifpp/
 curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
 curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
