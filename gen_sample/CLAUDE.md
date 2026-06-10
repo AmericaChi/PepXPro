@@ -118,8 +118,29 @@ Pipeline order: `quality → seq redundancy → structural redundancy → sampli
 
 Requires `scikit-learn` for `isolation-forest` and `cluster`.
 
-Use `--dims` to select dimensions: `dg`, `pep_len`, `rec_len`, `n_rec_chains`.
+Use `--dims` to select dimensions:
+
+| Dim | Source field | Notes |
+|---|---|---|
+| `dg` | `dG_kcal_mol` | Binding free energy |
+| `pep_len` | `peptide` `:N` | Peptide length |
+| `rec_len` | `receptor` `:N` | Receptor length |
+| `n_rec_chains` | `receptor` chain part | Number of receptor chains |
+| `pep_helix` | `peptide_pct_helix` | % helix (peptide, DSSP) |
+| `pep_beta` | `peptide_pct_beta` | % beta (peptide, DSSP) |
+| `pep_coil` | `peptide_pct_coil` | % coil (peptide, DSSP) |
+| `rec_helix` | `receptor_pct_helix` | % helix (receptor, DSSP) |
+| `rec_beta` | `receptor_pct_beta` | % beta (receptor, DSSP) |
+| `rec_coil` | `receptor_pct_coil` | % coil (receptor, DSSP) |
+| `n_contacts` | `n_contacts` | Peptide–receptor heavy-atom contacts (4.5 Å) |
+| `n_hbonds` | `n_hbonds` | H-bond proxies N/O/S within 3.5 Å |
+| `binding_kd` | `binding_type` | 1=Kd, 0=Ki/IC50 |
+| `resolution` | `resolution` | Crystal resolution (Å); NMR/NA → None |
+| `ss_class` | `peptide_ss_class` | Ordinal SS class (helix/beta/coil/…) |
+| `func_class` | `receptor_func_class` | Ordinal receptor class |
+
 Default: `dg pep_len`. KDE always uses only the first dim.
+`n_contacts` and `n_hbonds` require those columns in `summary.tsv` (from scrape_pdb_bind step 2).
 Plot labels include effective dimensionality: `stratified-2D`, `kde-1D`, `cluster-2D`, etc.
 
 ## Planned modules

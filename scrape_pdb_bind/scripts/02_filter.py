@@ -44,15 +44,18 @@ OUT_COLS = [
     "receptor_ss", "receptor_ss_dssp",
     "resolution",
     "receptor_description", "receptor_func_class",
+    "n_contacts", "n_hbonds",
     "reject_reason",
 ]
 
 # Columns whose presence indicates expensive work (PDBFixer + DSSP) was done.
 _HEAVY_COLS = ("peptide_seq", "receptor_seq")
 
-# Columns that can be added cheaply from the raw pdb_cache CIF without
-# running PDBFixer or DSSP — just reading _entity.pdbx_description.
-_PATCH_COLS = frozenset(("receptor_description", "receptor_func_class"))
+# Columns that can be patched cheaply without re-running PDBFixer or DSSP.
+# receptor_description/func_class: from raw pdb_cache CIF.
+# n_contacts/n_hbonds: from the already-built fixed_cif/.
+_PATCH_COLS = frozenset(("receptor_description", "receptor_func_class",
+                          "n_contacts", "n_hbonds"))
 
 
 def _load_cache(tsv_path):
@@ -89,30 +92,44 @@ def _cache_status(cached):
     return "miss"
 
 
-def _patch_func_class(pdb_id, cached):
+def _patch_row(pdb_id, cached):
+    """Patch missing lightweight columns for a cached accepted row.
+
+    receptor_description/func_class: reads raw pdb_cache CIF (no PDBFixer/DSSP).
+    n_contacts/n_hbonds: reads already-built fixed_cif/<pdb_id>.cif.
     """
-    Add receptor_description and receptor_func_class to a cached accepted row.
-    Only reads the raw assembly CIF — no PDBFixer, no DSSP.
-    """
-    from modules.metadata import extract_receptor_description, classify_receptor_function
-
-    asm_num = cached.get("assembly_num", "1") or "1"
-    cif_path = PDB_CACHE / f"{pdb_id}-{asm_num}.cif"
-    if not cif_path.exists():
-        cif_path = PDB_CACHE / f"{pdb_id}-1.cif"
-
-    rec_chain_ids = [c.strip()
-                     for c in cached.get("receptor_chains", "").split(",")
-                     if c.strip()]
-
     row = dict(cached)
-    if cif_path.exists() and rec_chain_ids:
-        desc = extract_receptor_description(cif_path, rec_chain_ids)
-        row["receptor_description"] = desc
-        row["receptor_func_class"] = classify_receptor_function(desc)
-    else:
-        row.setdefault("receptor_description", "NA")
-        row.setdefault("receptor_func_class", "NA")
+
+    if not row.get("receptor_description") or not row.get("receptor_func_class"):
+        from modules.metadata import extract_receptor_description, classify_receptor_function
+        asm_num  = cached.get("assembly_num", "1") or "1"
+        cif_path = PDB_CACHE / f"{pdb_id}-{asm_num}.cif"
+        if not cif_path.exists():
+            cif_path = PDB_CACHE / f"{pdb_id}-1.cif"
+        rec_chain_ids = [c.strip() for c in cached.get("receptor_chains", "").split(",")
+                         if c.strip()]
+        if cif_path.exists() and rec_chain_ids:
+            desc = extract_receptor_description(cif_path, rec_chain_ids)
+            row["receptor_description"] = desc
+            row["receptor_func_class"]  = classify_receptor_function(desc)
+        else:
+            row.setdefault("receptor_description", "NA")
+            row.setdefault("receptor_func_class",  "NA")
+
+    if not row.get("n_contacts") or not row.get("n_hbonds"):
+        from modules.filter import compute_interface_contacts
+        fixed_cif = FIXED_DIR / f"{pdb_id}.cif"
+        if fixed_cif.exists():
+            pep_chain  = row.get("peptide_chain", "")
+            rec_chains = [c.strip() for c in row.get("receptor_chains", "").split(",")
+                          if c.strip()]
+            n_c, n_h = compute_interface_contacts(fixed_cif, pep_chain, rec_chains)
+            row["n_contacts"] = str(n_c)
+            row["n_hbonds"]   = str(n_h)
+        else:
+            row.setdefault("n_contacts", "")
+            row.setdefault("n_hbonds",   "")
+
     return row
 
 
@@ -213,12 +230,13 @@ def main():
                 continue
 
             if status == "patch":
-                patched = _patch_func_class(pdb_id, cached)
+                patched = _patch_row(pdb_id, cached)
                 row = {c: patched.get(c, "") for c in OUT_COLS}
                 _write_row(row)
                 accepted_count += 1
                 patched_count  += 1
-                log(f"  [{i}/{n_total}] PATCH  {pdb_id}  (receptor_func_class added)")
+                missing = [c for c in OUT_COLS if c != "reject_reason" and not cached.get(c, "")]
+                log(f"  [{i}/{n_total}] PATCH  {pdb_id}  ({', '.join(missing)} added)")
                 continue
 
             # ── Full processing ───────────────────────────────────────────
@@ -255,6 +273,8 @@ def main():
                     "resolution":           result.get("resolution", "NA"),
                     "receptor_description": result.get("receptor_description", "NA"),
                     "receptor_func_class":  result.get("receptor_func_class", "NA"),
+                    "n_contacts":           str(result.get("n_contacts", "")),
+                    "n_hbonds":             str(result.get("n_hbonds", "")),
                     "reject_reason":        "",
                 }
 

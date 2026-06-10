@@ -71,5 +71,30 @@ def enrich_rows(rows):
             r["_func_class"] = FUNC_CLASS_ORDER.index(func_class)
         except ValueError:
             r["_func_class"] = None
+        # SS percentages (peptide)
+        for src, dst in [("peptide_pct_helix", "_pep_helix"),
+                          ("peptide_pct_beta",  "_pep_beta"),
+                          ("peptide_pct_coil",  "_pep_coil")]:
+            try:
+                r[dst] = float(r.get(src) or 0)
+            except (ValueError, TypeError):
+                r[dst] = 0.0
+        # SS percentages (receptor)
+        for src, dst in [("receptor_pct_helix", "_rec_helix"),
+                          ("receptor_pct_beta",  "_rec_beta"),
+                          ("receptor_pct_coil",  "_rec_coil")]:
+            try:
+                r[dst] = float(r.get(src) or 0)
+            except (ValueError, TypeError):
+                r[dst] = 0.0
+        # Interface features (n_contacts, n_hbonds) — None if absent
+        for src, dst in [("n_contacts", "_n_contacts"), ("n_hbonds", "_n_hbonds")]:
+            raw = r.get(src, "")
+            try:
+                r[dst] = float(raw) if raw != "" else None
+            except (ValueError, TypeError):
+                r[dst] = None
+        # Binding type flag (1.0 = Kd, 0.0 = Ki/IC50)
+        r["_binding_kd"] = 1.0 if r.get("binding_type") == "Kd" else 0.0
         valid.append(r)
     return valid

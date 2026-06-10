@@ -8,6 +8,19 @@ DIM_KEYS = {
     "n_rec_chains": "_n_rec_chains",
     "ss_class":     "_ss_class",
     "func_class":   "_func_class",
+    # Secondary structure percentages
+    "pep_helix":    "_pep_helix",
+    "pep_beta":     "_pep_beta",
+    "pep_coil":     "_pep_coil",
+    "rec_helix":    "_rec_helix",
+    "rec_beta":     "_rec_beta",
+    "rec_coil":     "_rec_coil",
+    # Interface features (require n_contacts/n_hbonds in summary.tsv)
+    "n_contacts":   "_n_contacts",
+    "n_hbonds":     "_n_hbonds",
+    # Experimental metadata
+    "binding_kd":   "_binding_kd",
+    "resolution":   "_resolution",
 }
 
 AVAILABLE_DIMS = list(DIM_KEYS.keys())

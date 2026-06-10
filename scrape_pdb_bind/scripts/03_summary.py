@@ -45,6 +45,7 @@ OUT_COLS = [
     "receptor_ss", "receptor_ss_dssp",
     "receptor_pct_helix", "receptor_pct_beta", "receptor_pct_coil",
     "receptor_func_class",
+    "n_contacts", "n_hbonds",
 ]
 
 
@@ -139,6 +140,8 @@ def main():
             "receptor_pct_beta":   ss_percentages(row.get("receptor_ss_dssp", "NA"))[1],
             "receptor_pct_coil":   ss_percentages(row.get("receptor_ss_dssp", "NA"))[2],
             "receptor_func_class": row.get("receptor_func_class", "NA"),
+            "n_contacts":          row.get("n_contacts", ""),
+            "n_hbonds":            row.get("n_hbonds", ""),
             **{c: entry.get(c, "") for c in extra_entry_cols},
         }))
 

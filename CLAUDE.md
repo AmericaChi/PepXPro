@@ -43,24 +43,26 @@ PepXPro is a modular framework for generating peptide–protein benchmark datase
 - Peptide feature analysis (charge, hydrophobicity, aromaticity)
 - Benchmark export with ML-friendly splits
 
-## Pending work — ML benchmark
+## ML benchmark — ml_benchmark/notebooks/ml_benchmark.ipynb
 
-Design agreed but not implemented. Goal: show that PepXPro curation choices
-(redundancy removal, sampling strategy, train/test split) affect ΔG prediction quality.
+Goal: show that PepXPro curation choices affect ΔG prediction quality.
+Uses Random Forest with 12 structural features (all from scrape_pdb_bind pipeline).
 
-Axes of comparison:
-1. Redundancy strategy — with/without seq-id-receptor, with/without tm-score-receptor
-2. Sampling method — stratified vs kennard-stone vs kde vs cluster
-3. Train/test split — random vs by-receptor vs by-deposition-year
+**12 features:** `pep_len`, `rec_len`, `peptide_pct_helix/beta/coil`,
+`receptor_pct_helix/beta/coil`, `n_contacts` (4.5 Å), `n_hbonds` (N/O/S 3.5 Å),
+`binding_kd`, `resolution`.
 
-Structural features to compute per entry (not yet in pipeline):
-- Number of peptide–receptor contacts (atoms within X Å)
-- Number of hydrogen bonds
+**6 strategies per scenario:** Random, Seq-70%+KS-2D/4D/8D/12D, Seq-70%+Rec-40%+KS-12D.
 
-iRMSD was discussed but deferred (requires reference structure).
+**Scenario A — same-pool 80/20:** curate N from full dataset → 80/20 split.
+**Scenario B — partial-helix held out:** ~96 partial-helix entries as fixed test set.
 
-Open question not yet decided: dataset-quality benchmark (measure leakage/distribution
-properties) vs model-predictive benchmark (train a model, measure RMSE/Pearson on test set).
+**N:** 300, 150, 75. **Metrics:** RMSE, MAE, Pearson r, Spearman ρ (±std over 25 seeds).
+
+**Interface features in pipeline:** `n_contacts` and `n_hbonds` computed in
+`scrape_pdb_bind/modules/filter.py::compute_interface_contacts()` from fixed CIFs.
+They flow through `filtered_systems.tsv` → `summary.tsv` → gen_sample `enrich_rows()`.
+Available as KS dims: `n_contacts`, `n_hbonds` (see gen_sample/CLAUDE.md).
 
 ## Output organization
 

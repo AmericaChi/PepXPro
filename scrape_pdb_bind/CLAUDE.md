@@ -78,7 +78,9 @@ Columns (accepted rows):
 `peptide_ss` (deposited _struct_conf), `peptide_ss_dssp` (mkdssp),
 `receptor_chains`, `receptor_length`, `receptor_added`, `receptor_seq`,
 `receptor_ss`, `receptor_ss_dssp`,
-`resolution`, `receptor_description`, `receptor_func_class`, `reject_reason`
+`resolution`, `receptor_description`, `receptor_func_class`,
+`n_contacts` (peptide heavy atoms within 4.5 Å of receptor), `n_hbonds` (N/O/S proxy at 3.5 Å),
+`reject_reason`
 
 ### outputs/summary.tsv
 Columns: `pdb_id`, `receptor`, `peptide`, `dG_kcal_mol`, `binding_type`,
@@ -87,7 +89,7 @@ Columns: `pdb_id`, `receptor`, `peptide`, `dG_kcal_mol`, `binding_type`,
          `peptide_pct_helix`, `peptide_pct_beta`, `peptide_pct_coil`, `peptide_ss_class`,
          `receptor_added`, `receptor_seq`, `receptor_ss`, `receptor_ss_dssp`,
          `receptor_pct_helix`, `receptor_pct_beta`, `receptor_pct_coil`,
-         `receptor_func_class`
+         `receptor_func_class`, `n_contacts`, `n_hbonds`
 
 Sorted strong→weak by ΔG.
 
@@ -103,7 +105,10 @@ Computes ΔG = RT·ln(Kd/Ki). Rejects covalent complexes. Downloads all assembly
 receptor chains within 4 Å of peptide. Rejects receptor gaps > 10 residues or covalent
 peptide–receptor continuity. Fills missing residues (PDBFixer). Rejects CA-CA gap > 5 Å.
 Extracts sequences, deposited SS (_struct_conf), DSSP SS (mkdssp), receptor description.
+Computes interface contacts (`n_contacts`) and H-bond proxies (`n_hbonds`) from the fixed CIF.
 Caches results — use `--force` to reprocess.
+Missing lightweight columns (`receptor_description`, `receptor_func_class`, `n_contacts`, `n_hbonds`)
+are patched cheaply from existing `fixed_cif/` files without full reprocessing.
 
 **Step 3:** Joins filtered + entries tables. Auto-detects extra columns from entries TSV.
 Computes ss_percentages and ss_class from DSSP string.
@@ -114,6 +119,8 @@ Computes ss_percentages and ss_class from DSSP string.
 - `MAX_RECEPTOR_GAP = 10` — max gap in receptor residue numbering
 - `PEPTIDE_BOND_CUTOFF = 1.8` — covalent terminus detection (Å)
 - `PEPTIDE_COPY_THRESHOLD = 0.7` — sequence similarity to exclude peptide copies
+- `CONTACT_CUTOFF_A = 4.5` — heavy-atom contact distance for `n_contacts`
+- `HBOND_CUTOFF_A = 3.5` — N/O/S proximity distance for `n_hbonds`
 - peptide_max_len = `max(50, n_mer × 2)`
 
 ## ΔG formula

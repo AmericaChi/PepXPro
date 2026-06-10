@@ -76,6 +76,9 @@ NEIGHBOR_CUTOFF_A    = 4.0
 MAX_RECEPTOR_GAP     = 10
 PEPTIDE_BOND_CUTOFF  = 1.8
 PEPTIDE_COPY_THRESHOLD = 0.7
+CONTACT_CUTOFF_A     = 4.5   # peptide heavy-atom contacts
+HBOND_CUTOFF_A       = 3.5   # N/O/S donor-acceptor proximity proxy
+HBOND_ELEMENTS       = {"N", "O", "S"}
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +141,66 @@ def raw_chain_data(cif_path):
     full_seq_auth  = {a: entity_seq_len[e] for a, e in auth_to_entity.items()  if e in entity_seq_len}
     full_seq_label = {l: entity_seq_len[e] for l, e in label_to_entity.items() if e in entity_seq_len}
     return observed, full_seq_auth, full_seq_label
+
+
+# ---------------------------------------------------------------------------
+# Interface contacts and H-bond proxies
+# ---------------------------------------------------------------------------
+
+def compute_interface_contacts(fixed_cif_path, pep_chain, rec_chains):
+    """Count peptide-receptor contacts and H-bond proxies from a fixed CIF.
+
+    Returns (n_contacts, n_hbonds):
+      n_contacts — peptide heavy atoms within CONTACT_CUTOFF_A of any receptor heavy atom.
+      n_hbonds   — N/O/S atoms from peptide within HBOND_CUTOFF_A of N/O/S atoms from
+                   receptor (distance-only proxy; no explicit H atoms required).
+    """
+    try:
+        d = MMCIF2Dict(str(fixed_cif_path))
+    except Exception:
+        return 0, 0
+
+    chains   = d.get("_atom_site.auth_asym_id", [])
+    xs       = d.get("_atom_site.Cartn_x", [])
+    ys       = d.get("_atom_site.Cartn_y", [])
+    zs       = d.get("_atom_site.Cartn_z", [])
+    elements = d.get("_atom_site.type_symbol", [])
+
+    rec_set = set(rec_chains)
+    pep_coords, pep_elems = [], []
+    rec_coords, rec_elems = [], []
+
+    for c, x, y, z, el in zip(chains, xs, ys, zs, elements):
+        try:
+            pt = (float(x), float(y), float(z))
+        except (ValueError, TypeError):
+            continue
+        el_up = el.strip().upper()
+        if c == pep_chain:
+            pep_coords.append(pt)
+            pep_elems.append(el_up)
+        elif c in rec_set:
+            rec_coords.append(pt)
+            rec_elems.append(el_up)
+
+    if not pep_coords or not rec_coords:
+        return 0, 0
+
+    pep_arr = np.array(pep_coords, dtype=np.float32)
+    rec_arr = np.array(rec_coords, dtype=np.float32)
+
+    dists, _ = cKDTree(rec_arr).query(pep_arr, k=1, workers=1)
+    n_contacts = int((dists < CONTACT_CUTOFF_A).sum())
+
+    pep_hb_idx = [i for i, e in enumerate(pep_elems) if e in HBOND_ELEMENTS]
+    rec_hb_idx = [i for i, e in enumerate(rec_elems) if e in HBOND_ELEMENTS]
+    if not pep_hb_idx or not rec_hb_idx:
+        return n_contacts, 0
+
+    dists_hb, _ = cKDTree(rec_arr[rec_hb_idx]).query(pep_arr[pep_hb_idx], k=1, workers=1)
+    n_hbonds = int((dists_hb < HBOND_CUTOFF_A).sum())
+
+    return n_contacts, n_hbonds
 
 
 # ---------------------------------------------------------------------------
@@ -521,6 +584,9 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
     rec_description = extract_receptor_description(cif_path, receptor_chain_ids)
     rec_func_class  = classify_receptor_function(rec_description)
 
+    # --- Interface contacts and H-bond proxies (from fixed CIF) ---
+    n_contacts, n_hbonds = compute_interface_contacts(fixed_cif_path, pep_id, rec_ids)
+
     return dict(
         accepted=True,
         peptide_chain=pep_id,
@@ -537,6 +603,8 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
         resolution=resolution,
         receptor_description=rec_description,
         receptor_func_class=rec_func_class,
+        n_contacts=n_contacts,
+        n_hbonds=n_hbonds,
         ion_chains=ion_chains_out,
         residues_added=residues_added,
         reject_reason="",
