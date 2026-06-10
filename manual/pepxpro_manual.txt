@@ -207,7 +207,7 @@ python 01_gen_sample.py --sample 20 --sampling cluster --dims dg pep_len rec_len
 python 01_gen_sample.py --sample 20 --dims func_class dg
 python 01_gen_sample.py --sample 20 --min-year 2010 --max-resolution 2.5
 python 01_gen_sample.py --sample 20 --seq-id-receptor medium --seq-id-peptide strict
-python 01_gen_sample.py --sample 20 --tm-score-receptor 0.5
+python 01_gen_sample.py --sample 20 --tm-score-receptor 0.5 --max-peptide 4
 python 01_gen_sample.py --sample 20 --link-cifs
 python 01_gen_sample.py --sample 20 --copy-cifs --format pdb
 python 01_gen_sample.py --sample 20 --protonate --ph 7.4 --format pdb
@@ -274,7 +274,7 @@ USAGE EXAMPLES
 --------------
 python 05_view_sample.py
 python 05_view_sample.py --run 3
-python 05_view_sample.py --run 3 --cif-dir cif
+python 05_view_sample.py --run 8 --cif-dir cif
 
 
 ===========================================================================

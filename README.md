@@ -94,29 +94,33 @@ To use the re-processed v2020R1 index instead (better quality structures, update
 python 01_download.py --index ../inputs/INDEX_general_PL.2020R1.lst
 ```
 
-### 2. Generate a diverse sample
-
-Generate a reproducible sample of 20 protein–peptide complexes. The dataset is first filtered to remove sequence and structural redundancy, then sampled using Kennard–Stone to maximize diversity in binding affinity (ΔG) and peptide length.
+### 2. Generate a sample
+Run from gen_sample/scripts/. Reads from scrape_pdb_bind/outputs/.
+Writes to gen_sample/outputs/run_XX/.
 
 ```bash
 cd ../../gen_sample/scripts
 
-python 01_gen_sample.py \
-    --sample 20 \
-    --seed 42 \
-    --copy-cifs \
-    --seq-id-receptor strict \
-    --seq-id-peptide strict \
-    --tm-score-receptor 0.5 \
-    --sampling kennard-stone \
-    --dims dg pep_len
+  python 01_gen_sample.py --sample 20
+  python 01_gen_sample.py --dry-run
+  python 02_benchmark_sampling.py
+  python 03_compare_runs.py --run run_01
+  python 05_view_sample.py --run 1
+
 ```
+OUTPUT (gen_sample/outputs/run_XX/)
 
-Outputs:
-
-- Sample summary dataset (`.tsv`)
-- Selected CIF structures (`--copy-cifs`)
-- Run metadata and logs
+------------------------------------
+```bash
+sample.tsv                 Selected entries.
+run_config.json            All parameters used (fully reproducible).
+pool_quality.tsv           Entries after quality filters.
+pool_redundancy.tsv        Entries after redundancy filters.
+peptide_sequences.fasta    (only with --export-fasta)
+receptor_sequences.fasta   (only with --export-fasta)
+cif/  or  pdb/             Structure files (only with --link-cifs / --copy-cifs / --protonate)
+plots/run_comparison.png   (only with 03_compare_runs.py)
+```
 
 ### Optional: Explore interactively
 
