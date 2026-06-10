@@ -64,6 +64,7 @@ curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/
 ```
 Note: `components.cif` is ~400 MB — the last download takes a few minutes.
 To verify the files downloaded correctly: `ls -lh $CONDA_PREFIX/var/cache/libcifpp/`
+
 ---
 
 ## Quick start
