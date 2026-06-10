@@ -48,7 +48,7 @@ STEP 1 — Download
   Parses the PDBbind index for n-mer entries with Kd or Ki affinity.
   Downloads all biological assembly CIFs from RCSB. ~750 entries, ~30 min.
 
-  python -u 01_download.py 2>&1 | tee ../logs/01_download.log
+  python 01_download.py
 
   Key outputs:
     pdb_cache/           Raw assembly CIFs
@@ -59,7 +59,7 @@ STEP 2 — Filter and fix
   compatibility, fills missing residues with PDBFixer, runs DSSP, and annotates
   receptor functional class from PDB entity descriptions.
 
-  python -u 02_filter.py 2>&1 | tee ../logs/02_filter.log
+  python 02_filter.py
 
   The filter is incremental: re-running skips already-processed entries and
   cheaply patches any new columns (e.g. receptor_func_class) without repeating
@@ -92,7 +92,7 @@ PDBbind. The example below uses PEPBI (Dryad, doi:10.5061/dryad.wstqjq2wk).
 
   cd scrape_pdb_bind/scripts
 
-  python 00_external.py \
+  python 05_external.py \
     --input inputs/external/PEPBI.xlsx \
     --name pepbi_v1
 
@@ -104,10 +104,10 @@ PDBbind. The example below uses PEPBI (Dryad, doi:10.5061/dryad.wstqjq2wk).
     5. Merges with summary.tsv → outputs/summary_merged.tsv.
 
   To add a second dataset later:
-    python 00_external.py --input inputs/external/my_dataset.tsv --name custom_v1
+    python 05_external.py --input inputs/external/my_dataset.tsv --name custom_v1
 
   To rebuild the merged file after adding multiple sources:
-    python 00_external.py --merge-only
+    python 05_external.py --merge-only
 
   The merged summary (summary_merged.tsv) is a drop-in replacement for summary.tsv
   in all gen_sample commands.
@@ -496,9 +496,9 @@ Checking what's in the pool before committing:
   It prints pool size at each filtering stage without writing any output.
 
 Working with multiple external datasets:
-  python 00_external.py --input ... --name source_a
-  python 00_external.py --input ... --name source_b
-  python 00_external.py --merge-only
+  python 05_external.py --input ... --name source_a
+  python 05_external.py --input ... --name source_b
+  python 05_external.py --merge-only
   # summary_merged.tsv now contains PDBbind + source_a + source_b
 
 Disk usage:

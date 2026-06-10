@@ -6,7 +6,8 @@ Output columns:
     pdb_id          - PDB accession code
     receptor        - e.g. "AB:300" (chains A+B, 300 total residues)
     peptide         - e.g. "C:12" (post-fix residue count)
-    dG_kcal_mol     - DeltaG at 300 K (kcal/mol)
+    dG_kcal_mol     - DeltaG = RT ln(Kd/Ki) (kcal/mol)
+    temperature     - temperature used for ΔG calculation (K); from index notes or fallback
     binding_type    - Kd / Ki
     resolution      - crystallographic resolution in Å, or NA
     year            - deposition year
@@ -35,7 +36,7 @@ LOG_FILE      = LOGS_DIR / "03_summary.log"
 
 OUT_COLS = [
     "pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
-    "resolution", "year",
+    "resolution", "year", "temperature",
     "peptide_added", "peptide_seq",
     "peptide_ss", "peptide_ss_dssp",
     "peptide_pct_helix", "peptide_pct_beta", "peptide_pct_coil",

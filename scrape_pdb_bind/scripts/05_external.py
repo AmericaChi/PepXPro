@@ -1,14 +1,14 @@
 """
-00_external.py — Integrate an external peptide-protein dataset into PepXPro.
+05_external.py — Integrate an external peptide-protein dataset into PepXPro.
 
 Parses an external file (xlsx/tsv/csv), normalizes affinity data,
 deduplicates against PDBbind, downloads CIFs, runs the filter+summary
 pipeline, and produces a merged summary ready for gen_sample.
 
 Usage:
-  python 00_external.py --input inputs/PEPBI.xlsx
-  python 00_external.py --input inputs/dataset.tsv --name mydata
-  python 00_external.py --input inputs/PEPBI.xlsx --no-merge
+  python 05_external.py --input inputs/external/PEPBI.xlsx
+  python 05_external.py --input inputs/external/dataset.tsv --name mydata
+  python 05_external.py --input inputs/external/PEPBI.xlsx --no-merge
 
 Outputs (in outputs/):
   peptide_entries_<name>.tsv   — normalized entries (input for 02_filter.py)
@@ -34,8 +34,8 @@ sys.path.insert(0, str(_root))
 from modules.utils import load_tsv, save_tsv
 from modules.download import download_entries
 
-R_KCAL = 0.001987   # kcal / (mol * K)
-T      = 300.0      # K
+R_KCAL          = 0.001987   # kcal / (mol * K)
+DEFAULT_TEMP_K  = 300.0      # K
 
 OUTPUTS_DIR = _root / "outputs"
 LOGS_DIR    = _root / "logs"
@@ -278,8 +278,8 @@ def _parse_conc(val_str, col_hint=""):
     return num * factor
 
 
-def _row_temperature(row, colmap):
-    """Return experimental temperature in K, or global T (300.0) as fallback."""
+def _row_temperature(row, colmap, fallback_temp=DEFAULT_TEMP_K):
+    """Return experimental temperature in K, or fallback_temp if not available."""
     if colmap.get("temperature"):
         raw = str(row.get(colmap["temperature"], "")).strip()
         try:
@@ -288,17 +288,17 @@ def _row_temperature(row, colmap):
                 return t
         except (ValueError, TypeError):
             pass
-    return T
+    return fallback_temp
 
 
-def _compute_dg(row, colmap):
+def _compute_dg(row, colmap, fallback_temp=DEFAULT_TEMP_K):
     """
     Derive dG (kcal/mol), binding_type, dG_approx from a row.
     Priority: dg_exp → kd → ki → dg_calc.
-    Uses experimental temperature if available, else 300 K.
+    Uses experimental temperature if available, else fallback_temp.
     Returns (dg_str, btype, approx_flag) or ("NA", "NA", "N").
     """
-    t = _row_temperature(row, colmap)
+    t = _row_temperature(row, colmap, fallback_temp)
 
     # 1. Experimental dG (direct kcal/mol — temperature already baked in)
     if colmap.get("dg_exp"):
@@ -377,7 +377,7 @@ def _get_n_mer(row, colmap):
     return 0
 
 
-def normalize_entries(raw_rows, colmap, dataset_name):
+def normalize_entries(raw_rows, colmap, dataset_name, fallback_temp=DEFAULT_TEMP_K):
     """
     Convert raw external rows to peptide_entries-format dicts.
     Returns (entries, extra_col_names).
@@ -395,7 +395,7 @@ def normalize_entries(raw_rows, colmap, dataset_name):
             skipped += 1
             continue
 
-        dg_str, btype, dg_approx = _compute_dg(raw, colmap)
+        dg_str, btype, dg_approx = _compute_dg(raw, colmap, fallback_temp)
         if dg_str == "NA":
             skipped += 1
             continue
@@ -516,6 +516,8 @@ def main():
                              "existing summary_*.tsv files into summary_merged.tsv.")
     parser.add_argument("--force-colmap", action="store_true",
                         help="Ignore saved column map and re-detect interactively.")
+    parser.add_argument("--temperature", default=DEFAULT_TEMP_K, type=float, metavar="K",
+                        help="Fallback temperature in K when not found in the dataset (default: 300.0).")
     args = parser.parse_args()
 
     # ── Merge-only shortcut ───────────────────────────────────────────────────
@@ -575,7 +577,7 @@ def main():
 
     # ── 3. Normalize ──────────────────────────────────────────────────────────
     print(f"\n[3/6] Normalizing entries ...")
-    entries, extra_col_names = normalize_entries(raw_rows, colmap, name)
+    entries, extra_col_names = normalize_entries(raw_rows, colmap, name, fallback_temp=args.temperature)
     print(f"  {len(entries)} valid entries")
     if not entries:
         print("  No valid entries. Aborting.")

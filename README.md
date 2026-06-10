@@ -37,7 +37,7 @@ Create the environment:
 ```bash
 conda create -n pepxpro -c conda-forge python=3.12 \
     openmm matplotlib numpy pandas biopython pdbfixer \
-    scipy scikit-learn dssp pymol-open-source ipykernel jupyter openpyxl
+    scipy scikit-learn dssp pymol-open-source ipykernel jupyter openpyxl 
 ```
 
 Activate the environment:
@@ -56,44 +56,99 @@ python -m pip install tmtools
 After creating the environment, download DSSP dictionary files (one-time).
 Run with the environment activated so `$CONDA_PREFIX` resolves correctly:
 ```bash
-conda activate pepxpro
 mkdir -p $CONDA_PREFIX/var/cache/libcifpp/
 curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
 curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
 curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
 ```
 Note: `components.cif` is ~400 MB — the last download takes a few minutes.
-
+To verify the files downloaded correctly: `ls -lh $CONDA_PREFIX/var/cache/libcifpp/`
 ---
 
 ## Quick start
 
+Activate the environment:
+
 ```bash
 conda activate pepxpro
-
-# 1. Build the dataset from PDBbind (one-time)
-cd scrape_pdb_bind/scripts
-python -u 01_download.py 2>&1 | tee ../logs/01_download.log
-python -u 02_filter.py   2>&1 | tee ../logs/02_filter.log
-python    03_summary.py
-python    04_distributions.py
-
-# 2. Generate a sample
-cd ../../gen_sample/scripts
-python 01_gen_sample.py --sample 20 --sampling kennard-stone \
-    --seq-id-receptor strict --seq-id-peptide strict \
-    --tm-score-receptor 0.5 --dims dg ss_class func_class \
-    --export-fasta --copy-cifs --seed 42
-
-# 3. Generate a versioned benchmark release
-cd ../../pepxpro_benchmark/scripts
-python 01_make_benchmark.py
 ```
 
-Or explore interactively with the tutorial notebook:
+### 1. Build the dataset from PDBbind
 
 ```bash
-jupyter notebook manual/tutorial.ipynb
+cd scrape_pdb_bind/scripts
+
+python 01_download.py
+python 02_filter.py
+python 03_summary.py
+python 04_distributions.py
+```
+
+This creates `outputs/summary.tsv`, the main curated dataset used by the sampling tools.
+
+To use the re-processed v2020R1 index instead (better quality structures, updated binding data):
+
+```bash
+python 01_download.py --index ../inputs/INDEX_general_PL.2020R1.lst
+```
+
+### 2. Generate a diverse sample
+
+Generate a reproducible sample of 20 protein–peptide complexes. The dataset is first filtered to remove sequence and structural redundancy, then sampled using Kennard–Stone to maximize diversity in binding affinity (ΔG) and peptide length.
+
+```bash
+cd ../../gen_sample/scripts
+
+python 01_gen_sample.py \
+    --sample 20 \
+    --seed 42 \
+    --copy-cifs \
+    --seq-id-receptor strict \
+    --seq-id-peptide strict \
+    --tm-score-receptor 0.5 \
+    --sampling kennard-stone \
+    --dims dg pep_len
+```
+
+Outputs:
+
+- Sample summary dataset (`.tsv`)
+- Selected CIF structures (`--copy-cifs`)
+- Run metadata and logs
+
+### Optional: Explore interactively
+
+```bash
+jupyter notebook tutorial/tutorial.ipynb
+```
+
+---
+
+## Reproducing the PepXPro Benchmark Release
+
+This step is mainly intended for benchmark maintainers or users who want to reproduce the versioned benchmark release exactly.
+First, build the PDBbind-derived dataset and external-dataset merge in case you didn't do it before:
+
+```bash
+cd scrape_pdb_bind/scripts
+
+python 01_download.py
+python 02_filter.py
+python 03_summary.py
+
+python 05_external.py \
+    --input ../inputs/external/PEPBI.xlsx \
+    --name pepbi
+```
+
+This creates `outputs/summary_merged.tsv`, which is used as the input for the versioned benchmark release.
+
+Then create the benchmark release:
+
+```bash
+cd ../../pepxpro_benchmark/scripts
+
+python 01_make_benchmark.py
 ```
 
 ---
@@ -102,7 +157,7 @@ jupyter notebook manual/tutorial.ipynb
 
 Full pipeline documentation, flag reference, and examples: [`manual/pepxpro_manual.txt`](manual/pepxpro_manual.txt)
 
-Interactive walkthrough: [`manual/tutorial.ipynb`](manual/tutorial.ipynb)
+Interactive walkthrough: [`tutorial/tutorial.ipynb`](tutorial/tutorial.ipynb)
 
 ---
 

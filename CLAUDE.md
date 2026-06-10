@@ -43,6 +43,25 @@ PepXPro is a modular framework for generating peptide–protein benchmark datase
 - Peptide feature analysis (charge, hydrophobicity, aromaticity)
 - Benchmark export with ML-friendly splits
 
+## Pending work — ML benchmark
+
+Design agreed but not implemented. Goal: show that PepXPro curation choices
+(redundancy removal, sampling strategy, train/test split) affect ΔG prediction quality.
+
+Axes of comparison:
+1. Redundancy strategy — with/without seq-id-receptor, with/without tm-score-receptor
+2. Sampling method — stratified vs kennard-stone vs kde vs cluster
+3. Train/test split — random vs by-receptor vs by-deposition-year
+
+Structural features to compute per entry (not yet in pipeline):
+- Number of peptide–receptor contacts (atoms within X Å)
+- Number of hydrogen bonds
+
+iRMSD was discussed but deferred (requires reference structure).
+
+Open question not yet decided: dataset-quality benchmark (measure leakage/distribution
+properties) vs model-predictive benchmark (train a model, measure RMSE/Pearson on test set).
+
 ## Output organization
 
 scrape_pdb_bind/outputs/
@@ -80,7 +99,7 @@ conda install -c conda-forge -c bioconda cd-hit
 python -m pip install tmtools
 ```
 
-Optional — only needed if using external datasets in `.xlsx` format (`00_external.py`):
+Optional — only needed if using external datasets in `.xlsx` format (`05_external.py`):
 ```bash
 conda install -c conda-forge openpyxl
 ```
@@ -103,6 +122,23 @@ curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/di
 curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
 ```
 Note: `components.cif` is ~400 MB — the last download takes a few minutes.
+
+## Sibling project
+
+`PDBbindVersions/` (one level up, at `PREPPRO/PDBbindVersions/`) contains a Jupyter notebook
+comparing v2020 vs v2020R1 index files. Key finding: R1 is a strict subset of v2020
+(406 entries removed, 0 new, 314 changed binding data / resolution / year).
+
+## Known gotcha — DSSP
+
+If the libcifpp dictionary files are not downloaded, DSSP returns "NA" for all residues.
+gen_sample then drops all entries when `--dims ss_class` is used (ss_class = "NA" → filtered).
+Quick Start and Marty's setup: use `--dims dg pep_len` (does not require DSSP).
+Verify DSSP setup: `ls -lh $CONDA_PREFIX/var/cache/libcifpp/`
+
+## Commit convention
+
+**Never add Co-Authored-By lines** to commit messages in this repo.
 
 ## Coding guidelines
 

@@ -8,7 +8,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 R_KCAL = 0.001987   # kcal / (mol * K)
-T      = 300.0      # K
 
 UNIT_FACTORS = {"pM": 1e-12, "nM": 1e-9, "uM": 1e-6, "mM": 1e-3, "M": 1.0}
 
@@ -16,6 +15,7 @@ REJECT_FLAGS = ["covalent complex"]
 
 _MER_PAT     = re.compile(r'\((\d+)-mer\)')
 _BINDING_PAT = re.compile(r'(Kd|Ki|IC50)([<>=~]*)([\d.]+)(pM|nM|uM|mM|M)')
+_TEMP_PAT    = re.compile(r'temp(?:erature)?\s*(?:is\s*)?[=:]?\s*([\d.]+)\s*(?:degree|deg|°|c\b|celsius)?', re.IGNORECASE)
 
 MAX_WORKERS = 8
 
@@ -32,13 +32,37 @@ def parse_binding(token):
     return btype, val * UNIT_FACTORS[unit]
 
 
-def calc_dG(conc_M):
-    return R_KCAL * T * math.log(conc_M)
+def parse_temperature(comment):
+    """Extract temperature in K from a PDBbind index comment field.
+
+    Handles values in Celsius (< 200) or Kelvin (200-400).
+    Returns temperature in K, or None if not found.
+    """
+    m = _TEMP_PAT.search(comment)
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    if val < 200:        # assume Celsius
+        val += 273.15
+    if 200.0 < val < 400.0:
+        return val
+    return None
 
 
-def parse_index(path):
+def calc_dG(conc_M, t):
+    return R_KCAL * t * math.log(conc_M)
+
+
+def parse_index(path, fallback_temp=300.0):
     """Return list of dicts for every N-mer peptide entry in the INDEX.
-    Extracts: pdb_id, n_mer, year, binding_type, dG_kcal, dG_approx, step1_reject.
+    Extracts: pdb_id, n_mer, year, binding_type, dG_kcal, dG_approx,
+              step1_reject, temperature.
+
+    Temperature is parsed from the index comment when available;
+    falls back to fallback_temp (default 300 K).
     """
     entries = []
     with open(path, encoding="ascii") as fh:
@@ -55,13 +79,15 @@ def parse_index(path):
             year        = parts[2] if len(parts) > 2 else "NA"
             binding_str = parts[3] if len(parts) > 3 else ""
 
-            comment = line[line.find("//"):].lower() if "//" in line else ""
-            reject_reason = next((f for f in REJECT_FLAGS if f in comment), None)
+            comment = line[line.find("//"):] if "//" in line else ""
+            reject_reason = next((f for f in REJECT_FLAGS if f in comment.lower()), None)
+
+            t = parse_temperature(comment) or fallback_temp
 
             parsed = parse_binding(binding_str)
             if parsed is not None:
                 btype, conc_M = parsed
-                dG = calc_dG(conc_M)
+                dG = calc_dG(conc_M, t)
                 dG_approx = btype == "IC50"
             else:
                 btype, dG, dG_approx = None, None, False
@@ -75,6 +101,7 @@ def parse_index(path):
                 dG_kcal=f"{dG:.3f}" if dG is not None else "NA",
                 dG_approx="Y" if dG_approx else "N",
                 step1_reject=reject_reason or "",
+                temperature=f"{t:.2f}",
             ))
     return entries
 
