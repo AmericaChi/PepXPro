@@ -26,6 +26,7 @@ PepXPro also provides a diverse version (v1), curated by the authors, to maximiz
 | `scrape_pdb_bind/` | Download, filter, and prepare CIFs from PDBbind and external sources |
 | `gen_sample/` | Filter, deduplicate, sample, and export dataset subsets |
 | `pepxpro_benchmark/` | Curated, versioned diverse benchmark releases (`v1/`, `v2/`, …) |
+| `ml_benchmark/` | Notebook validating that curation choices affect ΔG prediction quality |
 | `manual/` | User manual and interactive tutorial notebook |
 
 ---
@@ -149,6 +150,32 @@ Then create the benchmark release:
 cd ../../pepxpro_benchmark/scripts
 
 python 01_make_benchmark.py
+```
+
+---
+
+## ML Benchmark
+
+`ml_benchmark/notebooks/ml_benchmark.ipynb` demonstrates that PepXPro curation choices
+affect ΔG prediction quality using a Random Forest regressor on 12 structural features.
+
+**Prerequisites:** complete the scrape_pdb_bind pipeline first (steps 1–3 of Quick start above).
+
+**Two scenarios:**
+
+- **Scenario A — same-model, varied test curation:** random 50/50 split; all strategies train
+  on the same half; the remaining half is curated with each strategy to select N test entries.
+- **Scenario B — partial-helix held out:** ~96 partial-helix entries form a fixed test set;
+  each strategy curates the remaining entries for training.
+
+**Six curation strategies per scenario:** Random, Seq-70%+KS 2D/4D/8D/12D, Seq-70%+Rec-40%+KS 12D.
+
+**Metrics:** RMSE, MAE, Pearson r, Spearman ρ (mean ± std over 25 seeds).
+
+Open and run with the `pepxpro` kernel:
+
+```bash
+jupyter notebook ml_benchmark/notebooks/ml_benchmark.ipynb
 ```
 
 ---

@@ -45,6 +45,14 @@ PepXPro is a modular framework for generating peptide–protein benchmark datase
 
 ## ML benchmark — ml_benchmark/notebooks/ml_benchmark.ipynb
 
+**Prerequisites:** the full scrape_pdb_bind pipeline must have been run first:
+```bash
+cd scrape_pdb_bind/scripts
+python 01_download.py
+python 02_filter.py   # adds n_contacts and n_hbonds via compute_interface_contacts()
+python 03_summary.py  # produces summary.tsv — the notebook's input
+```
+
 Goal: show that PepXPro curation choices affect ΔG prediction quality.
 Uses Random Forest with 12 structural features (all from scrape_pdb_bind pipeline).
 
@@ -54,10 +62,13 @@ Uses Random Forest with 12 structural features (all from scrape_pdb_bind pipelin
 
 **6 strategies per scenario:** Random, Seq-70%+KS-2D/4D/8D/12D, Seq-70%+Rec-40%+KS-12D.
 
-**Scenario A — same-pool 80/20:** curate N from full dataset → 80/20 split.
-**Scenario B — partial-helix held out:** ~96 partial-helix entries as fixed test set.
+**Scenario A — same-model, varied test curation:** random 50/50 split; all strategies train
+on the same half; the other half is curated with each strategy to select N test entries.
+**Scenario B — partial-helix held out:** ~96 partial-helix entries as fixed test set;
+each strategy curates the remaining entries for training.
 
-**N:** 300, 150, 75. **Metrics:** RMSE, MAE, Pearson r, Spearman ρ (±std over 25 seeds).
+**N_TEST (A):** 150, 75. **N_TRAIN (B):** 300, 150, 75.
+**Metrics:** RMSE, MAE, Pearson r, Spearman ρ (±std over 25 seeds).
 
 **Interface features in pipeline:** `n_contacts` and `n_hbonds` computed in
 `scrape_pdb_bind/modules/filter.py::compute_interface_contacts()` from fixed CIFs.
