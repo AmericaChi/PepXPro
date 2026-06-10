@@ -45,6 +45,8 @@ def main():
             print(f"Removed {OUT_TSV}")
         return
 
+    OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+
     index_file = Path(args.index)
     if not index_file.exists():
         print(f"Error: index file not found: {index_file}")
