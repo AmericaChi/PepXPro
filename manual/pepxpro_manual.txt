@@ -22,9 +22,14 @@ Run steps sequentially from scrape_pdb_bind/scripts/:
   python 01_download.py
   python 02_filter.py
   python 03_summary.py
-  python 04_distributions.py
+  python 04_external.py --input inputs/external/PEPBI.xlsx   # optional: add external dataset
+  python 05_distributions.py
 
 Each script accepts --clean to remove its output files.
+Or run the entire pipeline with the top-level runner (from the project root):
+
+  python pepxpro.py scrape -v
+  python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx   # includes external step
 
 01_download.py FLAGS
 --------------------
@@ -60,28 +65,29 @@ filtered_systems.tsv columns (accepted rows):
   receptor_chains, receptor_length, receptor_added, receptor_seq,
   receptor_ss (_struct_conf deposited), receptor_ss_dssp (Biopython DSSP),
   receptor_description, receptor_func_class,
+  n_contacts (heavy-atom contacts ≤4.5 Å), n_hbonds (N/O/S proxies ≤3.5 Å),
   resolution, reject_reason
 
 summary.tsv columns:
   pdb_id, receptor, peptide, dG_kcal_mol, binding_type, resolution, year, temperature,
   peptide_added, peptide_seq, peptide_ss, peptide_ss_dssp,
-  peptide_pct_helix, peptide_pct_beta, peptide_pct_coil,
+  peptide_pct_helix, peptide_pct_beta, peptide_pct_coil, peptide_ss_class,
   receptor_added, receptor_seq, receptor_ss, receptor_ss_dssp,
   receptor_pct_helix, receptor_pct_beta, receptor_pct_coil,
-  receptor_description, receptor_func_class
+  receptor_description, receptor_func_class, n_contacts, n_hbonds
 
 receptor_func_class values:
   enzyme, chaperone, structural, signal, regulatory, peptide-binding, other
 
 
 ===========================================================================
-SCRIPT: 05_external.py  (optional — integrate external datasets)
+SCRIPT: 04_external.py  (optional — integrate external datasets)
 ===========================================================================
 Normalizes an external affinity dataset (xlsx/tsv/csv), downloads CIFs,
 runs filter + summary, and merges with the PDBbind summary.
 
-  python 05_external.py --input inputs/external/PEPBI.xlsx --name pepbi
-  python 05_external.py --merge-only     # re-merge all existing external summaries
+  python 04_external.py --input inputs/external/PEPBI.xlsx --name pepbi
+  python 04_external.py --merge-only     # re-merge all existing external summaries
 
 FLAGS
 -----
@@ -163,7 +169,8 @@ SAMPLING  (only with --sample)
 
 QUALITY FILTERS  (all optional)
 ---------------------------------
---single-chain               Keep only single receptor-chain entries. Default: OFF.
+--single-chain / --no-single-chain   Keep only single receptor-chain entries. Default: ON.
+                             Use --no-single-chain to include multi-chain receptors.
 --min/max-receptor N         Receptor residue count bounds.
 --min/max-peptide N          Peptide residue count bounds.
 --min/max-dg F               Binding affinity range (kcal/mol).

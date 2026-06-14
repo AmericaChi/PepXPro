@@ -16,8 +16,8 @@ scrape_pdb_bind/
 │   ├── 01_download.py       Parse INDEX, compute ΔG, download assembly CIFs
 │   ├── 02_filter.py         Filter, fix, extract metadata
 │   ├── 03_summary.py        Build summary table
-│   ├── 04_distributions.py  Box plot distributions
-│   └── 05_external.py       Integrate external datasets (e.g. PEPBI.xlsx)
+│   ├── 04_external.py       Integrate external datasets (e.g. PEPBI.xlsx)  [optional]
+│   └── 05_distributions.py  Box plot distributions (auto-detects merged summary)
 ├── modules/
 │   ├── utils.py             load_tsv, save_tsv
 │   ├── download.py          parse_index, parse_temperature, calc_dG, download_all
@@ -35,16 +35,27 @@ scrape_pdb_bind/
 
 ## Running the pipeline
 
+Standard (PDBbind only):
+```bash
+python pepxpro.py scrape -v
+```
+
+With external dataset:
+```bash
+python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx
+```
+
+Or step by step:
 ```bash
 cd scrape_pdb_bind/scripts
-
 python 01_download.py
 python 02_filter.py
 python 03_summary.py
-python 04_distributions.py
+python 04_external.py --input inputs/external/PEPBI.xlsx   # optional
+python 05_distributions.py                                  # uses summary.tsv by default
 ```
 
-Each script accepts `--clean` to remove its output files.
+Each script accepts `--clean` to remove its output files and `-v` for brief progress output.
 
 ## Key flags
 
@@ -58,12 +69,17 @@ Each script accepts `--clean` to remove its output files.
 - `--force` — ignore cache, reprocess all entries
 - `--input / --output / --log` — override default paths
 
-### 05_external.py
+### 04_external.py (optional)
 - `--input FILE` — external dataset (xlsx/tsv/csv)
 - `--name NAME` — short identifier for output files
 - `--temperature K` — fallback temperature (default: 300.0)
 - `--merge-only` — re-merge all existing external summaries without re-running pipeline
 - `--no-download / --no-filter / --no-summary / --no-merge` — skip steps
+
+### 05_distributions.py
+- Uses `outputs/summary.tsv` by default; pass `--summary-tsv FILE` to override
+- `pepxpro.py scrape` automatically passes `--summary-tsv summary_merged.tsv` when the external step ran
+- `--output-dir DIR` — override default plots directory
 
 ## Outputs
 

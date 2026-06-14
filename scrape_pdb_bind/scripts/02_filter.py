@@ -25,7 +25,7 @@ _here = Path(__file__).resolve().parent
 _root = _here.parent
 sys.path.insert(0, str(_root))
 
-from modules.utils import load_tsv
+from modules.utils import load_tsv, setup_logging
 from modules.filter import process_entry
 
 OUTPUTS_DIR  = _root / "outputs"
@@ -158,6 +158,8 @@ def main():
                         help=f"Output filtered_systems TSV (default: {OUT_TSV.name}).")
     parser.add_argument("--log", metavar="FILE", default=str(LOG_FILE),
                         help=f"Log file path (default: {LOG_FILE.name}).")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print a brief start/done line to stdout.")
     args = parser.parse_args()
 
     in_tsv   = Path(args.input)
@@ -175,8 +177,10 @@ def main():
         return
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    log_file.parent.mkdir(parents=True, exist_ok=True)
+    _logger, stdout = setup_logging(log_file, args.verbose)
+    if args.verbose:
+        stdout.write("[scrape/02-filter] starting ...\n")
+        stdout.flush()
 
     # Load existing results before opening out_tsv for writing
     if args.force:
@@ -199,14 +203,9 @@ def main():
     patched_count  = 0
     n_total = len(entries)
 
-    with open(out_tsv, "w", encoding="ascii") as tsv_fh, \
-         open(log_file, "w", encoding="ascii") as log_fh:
+    with open(out_tsv, "w", encoding="ascii") as tsv_fh:
 
         tsv_fh.write("\t".join(OUT_COLS) + "\n")
-
-        def log(msg):
-            print(msg)
-            log_fh.write(msg + "\n")
 
         def _write_row(row):
             tsv_fh.write("\t".join(row.get(c, "") for c in OUT_COLS) + "\n")
@@ -236,7 +235,7 @@ def main():
                 accepted_count += 1
                 patched_count  += 1
                 missing = [c for c in OUT_COLS if c != "reject_reason" and not cached.get(c, "")]
-                log(f"  [{i}/{n_total}] PATCH  {pdb_id}  ({', '.join(missing)} added)")
+                print(f"  [{i}/{n_total}] PATCH  {pdb_id}  ({', '.join(missing)} added)")
                 continue
 
             # ── Full processing ───────────────────────────────────────────
@@ -288,11 +287,11 @@ def main():
                     r for resnames in result["ion_chains"].values() for r in resnames
                 ))
                 ions_str = f"  ions=[{','.join(ions_all)}]" if ions_all else ""
-                log(f"  [{i}/{n_total}] PASS   {pdb_id}  asm={result['assembly_num']}  "
+                print(f"  [{i}/{n_total}] PASS   {pdb_id}  asm={result['assembly_num']}  "
                     f"pep={pep_str}  rec={rec_str}  res={result.get('resolution','NA')}"
                     f"{ions_str}  (accepted={accepted_count} rejected={rejected_count})")
                 if result["peptide_length"] != n_mer:
-                    log(f"    WARNING: peptide length {result['peptide_length']} != n_mer {n_mer}")
+                    print(f"    WARNING: peptide length {result['peptide_length']} != n_mer {n_mer}")
             else:
                 rejected_count += 1
                 row = {c: "" for c in OUT_COLS}
@@ -303,7 +302,7 @@ def main():
                     "assembly_num": str(result.get("assembly_num") or ""),
                     "reject_reason": result["reject_reason"],
                 })
-                log(f"  [{i}/{n_total}] REJECT {pdb_id}: {result['reject_reason']}  "
+                print(f"  [{i}/{n_total}] REJECT {pdb_id}: {result['reject_reason']}  "
                     f"(accepted={accepted_count} rejected={rejected_count})")
 
             _write_row(row)
@@ -313,7 +312,13 @@ def main():
           f"total={accepted_count + rejected_count} "
           f"(cached={cached_count}  patched={patched_count}  new={new_count})")
     print(f"Written {out_tsv}")
-    print(f"Log: {log_file}")
+
+    if args.verbose:
+        stdout.write(
+            f"[scrape/02-filter] done  —  {accepted_count} accepted"
+            f"  {rejected_count} rejected\n"
+        )
+        stdout.flush()
 
 
 if __name__ == "__main__":

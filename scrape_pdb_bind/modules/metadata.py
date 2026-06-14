@@ -92,38 +92,20 @@ def extract_resolution(cif_path):
 def extract_ss_dssp_chain(fixed_cif_path, chain_id):
     """Compute per-residue secondary structure using DSSP (Biopython + mkdssp).
 
-    Runs on a fixed CIF (post-PDBFixer, complete coordinates).
-    mkdssp requires PDB format — the fixed CIF is converted to a temp PDB
-    in memory before calling DSSP, then the temp file is removed.
+    Runs mkdssp directly on the cached fixed CIF (post-PDBFixer, complete coordinates).
     Returns a per-residue string 'CCCHHHHCCEE' (3-state: H/E/C) sorted by
     residue number, or 'NA' on failure.
     Covers all experimental methods including NMR.
     """
-    import os
-    import tempfile
-    from Bio.PDB import MMCIFParser, MMCIFIO, DSSP as BiopythonDSSP
+    from Bio.PDB import MMCIFParser, DSSP as BiopythonDSSP
 
     try:
         parser = MMCIFParser(QUIET=True)
         structure = parser.get_structure("x", str(fixed_cif_path))
         model = structure[0]
-
-        # mkdssp v4 only reads mmCIF — write a temp CIF (not PDB)
-        with tempfile.NamedTemporaryFile(suffix=".cif", mode="w",
-                                         delete=False, encoding="ascii") as tmp:
-            tmp_path = tmp.name
-        io = MMCIFIO()
-        io.set_structure(structure)
-        io.save(tmp_path)
-
-        dssp = BiopythonDSSP(model, tmp_path, dssp="mkdssp")
+        dssp = BiopythonDSSP(model, str(fixed_cif_path), dssp="mkdssp")
     except Exception:
         return "NA"
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
 
     residues = []
     for key in dssp.keys():

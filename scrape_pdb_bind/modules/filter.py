@@ -549,6 +549,25 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
     if not ok:
         return dict(accepted=False, reject_reason=f"Fixed CIF build failed: {build_result}")
 
+    fixed_cif_path = Path(fixed_dir) / f"{pdb_id}.cif"
+    pep_id_check = build_result["chain_id_map"].get(
+        peptide_chain["chain_id"], peptide_chain["chain_id"]
+    )
+    _d = MMCIF2Dict(str(fixed_cif_path))
+    _pep_comps = {
+        comp
+        for chain, comp in zip(
+            _d.get("_atom_site.auth_asym_id", []),
+            _d.get("_atom_site.label_comp_id", []),
+        )
+        if chain == pep_id_check
+    }
+    _bad = sorted(_pep_comps - AMBER14_AA - WATER_RESIDUES)
+    if _bad:
+        fixed_cif_path.unlink(missing_ok=True)
+        return dict(accepted=False,
+                    reject_reason=f"Non-AMBER14 residues added by PDBFixer: {', '.join(_bad)}")
+
     cmap           = build_result["chain_id_map"]
     residues_added = {cmap.get(k, k): v for k, v in build_result["residues_added"].items()}
     pep_id         = cmap.get(peptide_chain["chain_id"], peptide_chain["chain_id"])

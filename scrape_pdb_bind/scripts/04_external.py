@@ -31,7 +31,7 @@ _here = Path(__file__).resolve().parent
 _root = _here.parent
 sys.path.insert(0, str(_root))
 
-from modules.utils import load_tsv, save_tsv
+from modules.utils import load_tsv, save_tsv, setup_logging
 from modules.download import download_entries
 
 R_KCAL          = 0.001987   # kcal / (mol * K)
@@ -40,6 +40,7 @@ DEFAULT_TEMP_K  = 300.0      # K
 OUTPUTS_DIR = _root / "outputs"
 LOGS_DIR    = _root / "logs"
 PDB_CACHE   = _root / "pdb_cache"
+LOG_FILE    = LOGS_DIR / "05_external.log"
 
 # Columns consumed from entries TSV by standard pipeline — not treated as "extra"
 _STANDARD_ENTRY_COLS = frozenset({
@@ -162,16 +163,22 @@ def _auto_map(columns):
 
 def _prompt_col(field, columns, required=False):
     """Prompt user to pick a column. Returns column name or None."""
+    # Write directly to the real terminal — sys.stdout may be redirected to the log.
+    out = sys.__stdout__
     avail = [c for c in columns if c]
-    print(f"\n  Column for '{field}' not detected.")
+    out.write(f"\n  Column for '{field}' not detected.\n")
     for i, c in enumerate(avail, 1):
-        print(f"    {i:2}. {c}")
+        out.write(f"    {i:2}. {c}\n")
+    out.flush()
     prompt = f"  Enter number, column name, or {'REQUIRED — cannot skip' if required else 'Enter to skip'}: "
     while True:
-        resp = input(prompt).strip()
+        out.write(prompt)
+        out.flush()
+        resp = sys.stdin.readline().strip()
         if not resp:
             if required:
-                print("  This field is required.")
+                out.write("  This field is required.\n")
+                out.flush()
                 continue
             return None
         try:
@@ -182,7 +189,8 @@ def _prompt_col(field, columns, required=False):
             pass
         if resp in columns:
             return resp
-        print(f"  '{resp}' not found.")
+        out.write(f"  '{resp}' not found.\n")
+        out.flush()
 
 
 def _resolve_colmap(columns, name, colmap_path):
@@ -518,10 +526,20 @@ def main():
                         help="Ignore saved column map and re-detect interactively.")
     parser.add_argument("--temperature", default=DEFAULT_TEMP_K, type=float, metavar="K",
                         help="Fallback temperature in K when not found in the dataset (default: 300.0).")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print a brief start/done line to stdout.")
+    parser.add_argument("--log", metavar="FILE", default=str(LOG_FILE),
+                        help=f"Log file path (default: {LOG_FILE.name}).")
     args = parser.parse_args()
+
+    log_file = Path(args.log)
+    _logger, stdout = setup_logging(log_file, args.verbose)
 
     # ── Merge-only shortcut ───────────────────────────────────────────────────
     if args.merge_only:
+        if args.verbose:
+            stdout.write("[scrape/05-external] merge-only ...\n")
+            stdout.flush()
         std_summary = OUTPUTS_DIR / "summary.tsv"
         summary_merged = OUTPUTS_DIR / "summary_merged.tsv"
         ext_tsvs = discover_external_summaries(OUTPUTS_DIR)
@@ -531,22 +549,22 @@ def main():
         print(f"[Merge] Found {len(ext_tsvs)} external summary file(s):")
         for p in ext_tsvs:
             print(f"  {p.name}")
-        print()
         merge_summaries(std_summary, ext_tsvs, summary_merged)
-        print(f"\n  Use in gen_sample:")
-        print(f"    python 01_gen_sample.py --sample 20 --summary-tsv \\")
-        print(f"      {summary_merged}")
+        print(f"  Use in gen_sample: python 01_gen_sample.py --summary-tsv {summary_merged}")
+        if args.verbose:
+            stdout.write(f"[scrape/05-external] done  —  merged\n")
+            stdout.flush()
         sys.exit(0)
 
     if not hasattr(args, 'input') or not args.input:
-        print("Error: --input is required unless --merge-only is used.")
+        sys.stderr.write("Error: --input is required unless --merge-only is used.\n")
         sys.exit(1)
 
     input_path = Path(args.input)
     if not input_path.exists():
         input_path = _root / args.input  # try relative to scrape_pdb_bind/
     if not input_path.exists():
-        print(f"  Error: {Path(args.input)} not found.")
+        sys.stderr.write(f"Error: {Path(args.input)} not found.\n")
         sys.exit(1)
 
     name        = args.name or re.sub(r'[^a-z0-9_]', '_', input_path.stem.lower())
@@ -555,7 +573,10 @@ def main():
         colmap_path.unlink()
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if args.verbose:
+        stdout.write(f"[scrape/05-external] starting ... ({name})\n")
+        stdout.flush()
 
     entries_ext_tsv  = OUTPUTS_DIR / f"peptide_entries_{name}.tsv"
     filtered_ext_tsv = OUTPUTS_DIR / f"filtered_systems_{name}.tsv"
@@ -649,49 +670,59 @@ def main():
 
     # ── 6a. Filter ────────────────────────────────────────────────────────────
     if not args.no_filter:
-        print(f"\n[6a/6] Running 02_filter.py ...")
-        subprocess.run(
-            [sys.executable, str(_here / "02_filter.py"),
-             "--input",  str(entries_ext_tsv),
-             "--output", str(filtered_ext_tsv),
-             "--log",    str(LOGS_DIR / f"02_filter_{name}.log")],
-            check=True,
-        )
+        print(f"[6a/6] Running 02_filter.py ...")
+        cmd = [sys.executable, str(_here / "02_filter.py"),
+               "--input",  str(entries_ext_tsv),
+               "--output", str(filtered_ext_tsv),
+               "--log",    str(LOGS_DIR / f"02_filter_{name}.log")]
+        if args.verbose:
+            cmd.append("-v")
+        result = subprocess.run(cmd, check=False, stderr=subprocess.PIPE)
+        if result.stderr:
+            _logger.warning(result.stderr.decode(errors="replace").strip())
+        if result.returncode != 0:
+            sys.stderr.write(f"02_filter.py failed (exit {result.returncode})\n")
+            sys.exit(result.returncode)
     else:
-        print(f"\n[6a/6] Skipping filter step.")
+        print("[6a/6] Skipping filter step.")
 
     # ── 6b. Summary ───────────────────────────────────────────────────────────
     if not args.no_summary and filtered_ext_tsv.exists():
-        print(f"\n[6b/6] Running 03_summary.py ...")
-        subprocess.run(
-            [sys.executable, str(_here / "03_summary.py"),
-             "--entries",  str(entries_ext_tsv),
-             "--filtered", str(filtered_ext_tsv),
-             "--output",   str(summary_ext_tsv),
-             "--log",      str(LOGS_DIR / f"03_summary_{name}.log")],
-            check=True,
-        )
+        print(f"[6b/6] Running 03_summary.py ...")
+        cmd = [sys.executable, str(_here / "03_summary.py"),
+               "--entries",  str(entries_ext_tsv),
+               "--filtered", str(filtered_ext_tsv),
+               "--output",   str(summary_ext_tsv),
+               "--log",      str(LOGS_DIR / f"03_summary_{name}.log")]
+        if args.verbose:
+            cmd.append("-v")
+        result = subprocess.run(cmd, check=False, stderr=subprocess.PIPE)
+        if result.stderr:
+            _logger.warning(result.stderr.decode(errors="replace").strip())
+        if result.returncode != 0:
+            sys.stderr.write(f"03_summary.py failed (exit {result.returncode})\n")
+            sys.exit(result.returncode)
     else:
-        print(f"\n[6b/6] Skipping summary step.")
+        print("[6b/6] Skipping summary step.")
 
     # ── Merge ─────────────────────────────────────────────────────────────────
     if not args.no_merge and summary_ext_tsv.exists():
         std_summary = OUTPUTS_DIR / "summary.tsv"
         ext_tsvs = discover_external_summaries(OUTPUTS_DIR)
-        print(f"\n[Merge] Merging {len(ext_tsvs)} external source(s) with PDBbind summary ...")
+        print(f"[Merge] Merging {len(ext_tsvs)} external source(s) with PDBbind summary ...")
         if not std_summary.exists():
             print(f"  Warning: {std_summary} not found — merged will contain external only.")
         merge_summaries(std_summary, ext_tsvs, summary_merged)
     else:
-        print(f"\n[Merge] Skipping merge.")
+        print("[Merge] Skipping merge.")
 
-    print(f"\nDone.")
-    print(f"  External summary:  {summary_ext_tsv}")
+    print(f"Done. External summary: {summary_ext_tsv}")
     if not args.no_merge:
-        print(f"  Merged summary:    {summary_merged}")
-        print(f"\n  Use in gen_sample:")
-        print(f"    python 01_gen_sample.py --sample 20 --summary-tsv \\")
-        print(f"      {summary_merged}")
+        print(f"  Merged: {summary_merged}")
+
+    if args.verbose:
+        stdout.write(f"[scrape/05-external] done  —  {name}\n")
+        stdout.flush()
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ PepXPro also provides a diverse version (v1), curated by the authors, to maximiz
 | Directory | Description |
 |---|---|
 | `scrape_pdb_bind/` | Download, filter, and prepare CIFs from PDBbind and external sources |
-| `gen_sample/` | Filter, deduplicate, sample, and export dataset subsets |
+| `gen_sample/` | Generate, analyze, and visualize curated dataset subsets |
 | `pepxpro_benchmark/` | Curated, versioned diverse benchmark releases (`v1/`, `v2/`, …) |
 | `ml_benchmark/` | Notebook validating that curation choices affect ΔG prediction quality |
 | `manual/` | User manual and interactive tutorial notebook |
@@ -83,7 +83,13 @@ cd scrape_pdb_bind/scripts
 python 01_download.py
 python 02_filter.py
 python 03_summary.py
-python 04_distributions.py
+python 05_distributions.py
+```
+
+Or use the top-level runner from the project root:
+
+```bash
+python pepxpro.py scrape -v
 ```
 
 This creates `outputs/summary.tsv`, the main curated dataset used by the sampling tools.
@@ -136,15 +142,7 @@ This step is mainly intended for benchmark maintainers or users who want to repr
 First, build the PDBbind-derived dataset and external-dataset merge in case you didn't do it before:
 
 ```bash
-cd scrape_pdb_bind/scripts
-
-python 01_download.py
-python 02_filter.py
-python 03_summary.py
-
-python 05_external.py \
-    --input ../inputs/external/PEPBI.xlsx \
-    --name pepbi
+python pepxpro.py scrape -v --external-input scrape_pdb_bind/inputs/external/PEPBI.xlsx
 ```
 
 This creates `outputs/summary_merged.tsv`, which is used as the input for the versioned benchmark release.

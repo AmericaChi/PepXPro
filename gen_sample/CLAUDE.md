@@ -59,7 +59,7 @@ python gen_sample.py --sample 20
 python gen_sample.py --sample 20 --sampling kennard-stone --seed 42
 python gen_sample.py --sample 20 --sampling kde
 python gen_sample.py --no-sample
-python gen_sample.py --sample 20 --single-chain --max-peptide 15 --link-cifs
+python gen_sample.py --sample 20 --max-peptide 15 --link-cifs
 python gen_sample.py --sample 20 --min-dg -15 --max-dg -8 --binding-type kd
 python gen_sample.py --sample 20 --max-added 3 --max-receptor-added 5
 python gen_sample.py --sample 20 --exclude bad_ids.txt --copy-cifs
@@ -69,7 +69,7 @@ python gen_sample.py --sample 20 --exclude bad_ids.txt --copy-cifs
 
 | Flag | Description |
 |---|---|
-| `--single-chain` | Receptor with exactly one chain |
+| `--single-chain` | Receptor with exactly one chain (**default: on** — use `--no-single-chain` to include multi-chain) |
 | `--min/max-receptor N` | Receptor residue count bounds |
 | `--min/max-peptide N` | Peptide residue count bounds |
 | `--min/max-dg F` | Binding affinity range (kcal/mol) |

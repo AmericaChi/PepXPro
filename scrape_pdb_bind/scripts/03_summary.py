@@ -24,7 +24,7 @@ _here = Path(__file__).resolve().parent
 _root = _here.parent
 sys.path.insert(0, str(_root))
 
-from modules.utils import load_tsv, save_tsv
+from modules.utils import load_tsv, save_tsv, setup_logging
 from modules.metadata import ss_percentages, classify_peptide_ss
 
 OUTPUTS_DIR   = _root / "outputs"
@@ -63,6 +63,8 @@ def main():
                         help=f"Output summary TSV (default: {OUT_TSV.name}).")
     parser.add_argument("--log", metavar="FILE", default=str(LOG_FILE),
                         help=f"Log file path.")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="Print a brief start/done line to stdout.")
     args = parser.parse_args()
 
     entries_tsv  = Path(args.entries)
@@ -77,8 +79,10 @@ def main():
         return
 
     OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    log_file.parent.mkdir(parents=True, exist_ok=True)
+    _logger, stdout = setup_logging(log_file, args.verbose)
+    if args.verbose:
+        stdout.write("[scrape/03-summary] starting ...\n")
+        stdout.flush()
 
     entries_rows  = load_tsv(entries_tsv)
     entries_map   = {r["pdb_id"]: r for r in entries_rows}
@@ -151,12 +155,14 @@ def main():
     all_cols = OUT_COLS + extra_entry_cols
     save_tsv(rows, out_tsv, all_cols)
     print(f"Written {out_tsv}")
+    print(f"Accepted: {len(rows)}")
+    print("\t".join(all_cols))
+    for r in rows[:10]:
+        print("\t".join(r.get(c, "") for c in all_cols))
 
-    with open(log_file, "w", encoding="ascii") as fh:
-        fh.write(f"Accepted: {len(rows)}\n")
-        fh.write("\t".join(all_cols) + "\n")
-        for r in rows[:10]:
-            fh.write("\t".join(r.get(c, "") for c in all_cols) + "\n")
+    if args.verbose:
+        stdout.write(f"[scrape/03-summary] done  —  {len(rows)} entries\n")
+        stdout.flush()
 
 
 if __name__ == "__main__":

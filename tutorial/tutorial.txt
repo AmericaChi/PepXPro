@@ -77,12 +77,24 @@ STEP 3 — Summary
   Key output:
     outputs/summary.tsv    ~739 entries (varies by PDBbind version)
 
-STEP 4 — Distributions (optional)
+STEP 4 — External dataset (optional)
+  Integrates an external affinity dataset and merges with summary.tsv.
+
+  python 04_external.py --input inputs/external/PEPBI.xlsx --name pepbi
+
+  Output: outputs/summary_merged.tsv
+
+STEP 5 — Distributions (optional)
   Generates box plots for all numeric columns in summary.tsv.
 
-  python 04_distributions.py
+  python 05_distributions.py
 
   Output: outputs/plots/summary_distributions.png
+
+Alternatively, run the whole pipeline from the project root:
+
+  python pepxpro.py scrape -v
+  python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx
 
 
 --- 1.2  Adding an external dataset (optional) ---
@@ -92,7 +104,7 @@ PDBbind. The example below uses PEPBI (Dryad, doi:10.5061/dryad.wstqjq2wk).
 
   cd scrape_pdb_bind/scripts
 
-  python 05_external.py \
+  python 04_external.py \
     --input inputs/external/PEPBI.xlsx \
     --name pepbi_v1
 
@@ -104,10 +116,10 @@ PDBbind. The example below uses PEPBI (Dryad, doi:10.5061/dryad.wstqjq2wk).
     5. Merges with summary.tsv → outputs/summary_merged.tsv.
 
   To add a second dataset later:
-    python 05_external.py --input inputs/external/my_dataset.tsv --name custom_v1
+    python 04_external.py --input inputs/external/my_dataset.tsv --name custom_v1
 
   To rebuild the merged file after adding multiple sources:
-    python 05_external.py --merge-only
+    python 04_external.py --merge-only
 
   The merged summary (summary_merged.tsv) is a drop-in replacement for summary.tsv
   in all gen_sample commands.
@@ -496,9 +508,9 @@ Checking what's in the pool before committing:
   It prints pool size at each filtering stage without writing any output.
 
 Working with multiple external datasets:
-  python 05_external.py --input ... --name source_a
-  python 05_external.py --input ... --name source_b
-  python 05_external.py --merge-only
+  python 04_external.py --input ... --name source_a
+  python 04_external.py --input ... --name source_b
+  python 04_external.py --merge-only
   # summary_merged.tsv now contains PDBbind + source_a + source_b
 
 Disk usage:

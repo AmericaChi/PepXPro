@@ -152,8 +152,8 @@ def build_parser():
 
     # ---- Filters ----
     filt_grp = p.add_argument_group("filters  (applied before sampling; all optional)")
-    filt_grp.add_argument("--single-chain", action=argparse.BooleanOptionalAction, default=False,
-                          help="Keep only single receptor-chain entries (default: off).")
+    filt_grp.add_argument("--single-chain", action=argparse.BooleanOptionalAction, default=True,
+                          help="Keep only single receptor-chain entries (default: on). Use --no-single-chain to include multi-chain receptors.")
     filt_grp.add_argument("--min-receptor", type=int, metavar="N",
                           help="Minimum receptor residue count.")
     filt_grp.add_argument("--max-receptor", type=int, metavar="N",
