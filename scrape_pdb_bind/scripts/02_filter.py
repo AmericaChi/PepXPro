@@ -45,6 +45,7 @@ OUT_COLS = [
     "resolution",
     "receptor_description", "receptor_func_class",
     "n_contacts", "n_hbonds",
+    "mse_converted", "caps_stripped", "cap_min_dist_A",
     "reject_reason",
 ]
 
@@ -158,6 +159,14 @@ def main():
                         help=f"Output filtered_systems TSV (default: {OUT_TSV.name}).")
     parser.add_argument("--log", metavar="FILE", default=str(LOG_FILE),
                         help=f"Log file path (default: {LOG_FILE.name}).")
+    parser.add_argument("--no-convert-mse", dest="convert_mse",
+                        action="store_false", default=True,
+                        help="Disable MSE→MET conversion (on by default; MSE is a "
+                             "crystallographic Met substitute with identical biology).")
+    parser.add_argument("--strip-caps", action="store_true",
+                        help="Remove ACE/NME/NH2 terminal caps from peptide if their "
+                             "atoms are >4.5 Å from the receptor interface. "
+                             "Saves cap_min_dist_A to TSV for transparency.")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Print a brief start/done line to stdout.")
     args = parser.parse_args()
@@ -239,7 +248,9 @@ def main():
                 continue
 
             # ── Full processing ───────────────────────────────────────────
-            result = process_entry(pdb_id, n_mer, PDB_CACHE, FIXED_DIR)
+            result = process_entry(pdb_id, n_mer, PDB_CACHE, FIXED_DIR,
+                                   convert_mse=args.convert_mse,
+                                   strip_caps=args.strip_caps)
             # Assembly CIFs lack experimental metadata — use INDEX resolution
             if result.get("resolution", "NA") == "NA":
                 result["resolution"] = index_resolution
@@ -274,6 +285,9 @@ def main():
                     "receptor_func_class":  result.get("receptor_func_class", "NA"),
                     "n_contacts":           str(result.get("n_contacts", "")),
                     "n_hbonds":             str(result.get("n_hbonds", "")),
+                    "mse_converted":        result.get("mse_converted", ""),
+                    "caps_stripped":        result.get("caps_stripped", ""),
+                    "cap_min_dist_A":       result.get("cap_min_dist_A", ""),
                     "reject_reason":        "",
                 }
 

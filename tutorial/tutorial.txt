@@ -61,6 +61,11 @@ STEP 2 — Filter and fix
 
   python 02_filter.py
 
+  Optional flags:
+    --no-convert-mse   Disable MSE→MET conversion (on by default).
+    --strip-caps       Remove ACE/NME/NH2 terminal caps if not at interface (>4.5 Å).
+                       Caps within 4.5 Å of receptor are always rejected.
+
   The filter is incremental: re-running skips already-processed entries and
   cheaply patches any new columns (e.g. receptor_func_class) without repeating
   the heavy PDBFixer/DSSP steps.
@@ -68,6 +73,7 @@ STEP 2 — Filter and fix
   Key outputs:
     fixed_cif/                    Fixed, AMBER14-compatible CIFs
     outputs/filtered_systems.tsv  Per-entry results (accepted/rejected + metadata)
+                                  Includes mse_converted, caps_stripped, cap_min_dist_A.
 
 STEP 3 — Summary
   Joins filter results with affinity data, computes SS fractions, sorts by ΔG.
@@ -95,6 +101,8 @@ Alternatively, run the whole pipeline from the project root:
 
   python pepxpro.py scrape -v
   python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx
+  python pepxpro.py scrape -v --strip-caps         # recover capped-peptide entries
+  python pepxpro.py config --print                 # show all default parameters
 
 
 --- 1.2  Adding an external dataset (optional) ---
@@ -516,6 +524,11 @@ Working with multiple external datasets:
 Disk usage:
   --link-cifs uses symlinks (negligible disk). Use --copy-cifs only when
   you need portable, self-contained run directories.
+
+Viewing all default parameters:
+  python pepxpro.py config --print
+  Shows every pipeline parameter, whether it is CLI-settable or hardcoded,
+  and its current default value.
 
 Updating after a new PDBbind release:
   Re-run 01_download.py and 02_filter.py. The cache mechanism in step 2

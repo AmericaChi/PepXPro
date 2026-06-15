@@ -1,9 +1,7 @@
 # PepXPro
 
 A modular framework for scraping, generating, and sharing diverse peptide–protein benchmark datasets (structure + affinity) from PDBbind with the option of adding an external dataset (curated by the user).
-
 PepXPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces user-customizable, reproducible, diversity-aware benchmark sets ready for MD, Docking, AF-monomer benchmark, ML studies, or other potential studies.
-
 PepXPro also provides a diverse version (v1), curated by the authors, to maximize structural, sequence, and functional diversity within the current dataset.
 
 ---
@@ -37,8 +35,8 @@ Create the environment:
 
 ```bash
 conda create -n pepxpro -c conda-forge python=3.12 \
-    openmm matplotlib numpy pandas biopython pdbfixer \
-    scipy scikit-learn dssp pymol-open-source ipykernel jupyter openpyxl 
+    openmm matplotlib seaborn numpy pandas biopython pdbfixer \
+    scipy scikit-learn dssp pymol-open-source ipykernel jupyter openpyxl
 ```
 
 Activate the environment:
@@ -77,32 +75,64 @@ conda activate pepxpro
 
 ### 1. Build the dataset from PDBbind
 
+Use the top-level runner from the project root:
+
+```bash
+python pepxpro.py scrape -v
+```
+This runs steps 01 → 02 → 03 → 05 from scrape_pdb_bind module and create `outputs/summary.tsv`, the main PDBbind curated dataset used by the sampling tools. It also produces summary plots showing the distributions of the curated dataset features in `outputs/plots/To `. Use `-h` with any module to view all available parameters and options.
+
+Alternatively, you can run one step at the time:
+
+```bash
+python pepxpro.py scrape -v --steps download
+python pepxpro.py scrape -v --steps filter
+python pepxpro.py scrape -v --steps summary
+python pepxpro.py scrape -v --steps distributions
+```
+
+Or,
+
 ```bash
 cd scrape_pdb_bind/scripts
-
 python 01_download.py
 python 02_filter.py
 python 03_summary.py
 python 05_distributions.py
 ```
 
-Or use the top-level runner from the project root:
+#### OPTIONAL
+
+To use the re-processed v2020R1 index instead (better quality structures, updated binding data) add the flag to step 01:
 
 ```bash
-python pepxpro.py scrape -v
+--index scrape_pdb_bind/inputs/INDEX_general_PL.2020R1.lst
 ```
 
-This creates `outputs/summary.tsv`, the main curated dataset used by the sampling tools.
-
-To use the re-processed v2020R1 index instead (better quality structures, updated binding data):
+To include MSE (selenomethionine) entries by converting them to MET, or to recover entries with terminal capping groups (ACE/NME/NH2) that are not at the binding interface:
 
 ```bash
-python 01_download.py --index ../inputs/INDEX_general_PL.2020R1.lst
+python pepxpro.py scrape -v --strip-caps          # strip terminal caps not at interface
+python pepxpro.py scrape -v --no-convert-mse      # disable MSE→MET (on by default)
 ```
 
-### 2. Generate a sample
-Run from gen_sample/scripts/. Reads from scrape_pdb_bind/outputs/.
-Writes to gen_sample/outputs/run_XX/.
+To process an external-dataset and merge with the processed PDBbind dataset, use:
+
+```bash
+python pepxpro.py scrape -v --external-input scrape_pdb_bind/inputs/external/PEPBI.xlsx
+```
+
+Where `--external-input` is the path for the desired external dataset. This creates `outputs/summary_merged.tsv`.
+
+To view all default parameters for every pipeline stage:
+
+```bash
+python pepxpro.py config --print
+```
+
+### 2. Generate a sample (CHECK FROM HERE)
+
+Run from gen_sample/scripts/. Reads from scrape_pdb_bind/outputs/. Writes to gen_sample/outputs/run_XX/.
 
 ```bash
 cd ../../gen_sample/scripts
@@ -136,12 +166,28 @@ jupyter notebook tutorial/tutorial.ipynb
 
 ---
 
+## Performance reference
+
+Approximate runtimes on first run (~478 accepted entries from PDBbind 2020 peptide subset).
+Subsequent runs use the incremental cache and take seconds.
+
+| Step | Command | Time (first run) | Notes |
+|---|---|---|---|
+| 01 download | `pepxpro.py scrape --steps download` | — | Depends on bandwidth (~1000 CIFs) |
+| 02 filter | `pepxpro.py scrape --steps filter` | — | Incremental; re-run is instant |
+| 06 tm_matrix | `pepxpro.py scrape --steps tm_matrix` | ~48 min (706 entries, 10 cores) | One-time; reused by all gen_sample runs |
+| gen_sample TM (matrix) | `--tm-score-receptor 0.5` | — | With pre-computed matrix |
+| gen_sample TM (on-the-fly) | `--tm-score-receptor 0.5` | — | Without matrix |
+
+---
+
 ## Reproducing the PepXPro Benchmark Release
 
 This step is mainly intended for benchmark maintainers or users who want to reproduce the versioned benchmark release exactly.
 First, build the PDBbind-derived dataset and external-dataset merge in case you didn't do it before:
 
 ```bash
+python pepxpro.py scrape -v 
 python pepxpro.py scrape -v --external-input scrape_pdb_bind/inputs/external/PEPBI.xlsx
 ```
 

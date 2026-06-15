@@ -200,7 +200,7 @@ def generate_plots(version_dir):
 
     print("  Generating summary_distributions.png ...")
     subprocess.run(
-        [sys.executable, str(_scrape_scripts / "04_distributions.py"),
+        [sys.executable, str(_scrape_scripts / "05_distributions.py"),
          "--summary-tsv", str(version_dir / "sample.tsv"),
          "--output-dir",  str(plots_dst)],
         check=True,

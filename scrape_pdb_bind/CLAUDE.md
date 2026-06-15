@@ -68,6 +68,9 @@ Each script accepts `--clean` to remove its output files and `-v` for brief prog
 ### 02_filter.py
 - `--force` — ignore cache, reprocess all entries
 - `--input / --output / --log` — override default paths
+- `--no-convert-mse` — disable MSE→MET conversion (on by default; MSE is crystallographic Met)
+- `--strip-caps` — remove ACE/NME/NH2 terminal caps from peptide if >4.5 Å from receptor
+  (caps within 4.5 Å of receptor are always rejected even with this flag)
 
 ### 04_external.py (optional)
 - `--input FILE` — external dataset (xlsx/tsv/csv)
@@ -96,6 +99,7 @@ Columns (accepted rows):
 `receptor_ss`, `receptor_ss_dssp`,
 `resolution`, `receptor_description`, `receptor_func_class`,
 `n_contacts` (peptide heavy atoms within 4.5 Å of receptor), `n_hbonds` (N/O/S proxy at 3.5 Å),
+`mse_converted` ("Y" if MSE→MET), `caps_stripped` (e.g. "ACE,NME"), `cap_min_dist_A`,
 `reject_reason`
 
 ### outputs/summary.tsv

@@ -526,6 +526,11 @@ def main():
                         help="Ignore saved column map and re-detect interactively.")
     parser.add_argument("--temperature", default=DEFAULT_TEMP_K, type=float, metavar="K",
                         help="Fallback temperature in K when not found in the dataset (default: 300.0).")
+    parser.add_argument("--no-convert-mse", dest="convert_mse",
+                        action="store_false", default=True,
+                        help="Disable MSE→MET conversion in the filter step (on by default).")
+    parser.add_argument("--strip-caps", action="store_true",
+                        help="Remove ACE/NME/NH2 terminal caps if not at interface (>4.5 Å).")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Print a brief start/done line to stdout.")
     parser.add_argument("--log", metavar="FILE", default=str(LOG_FILE),
@@ -677,6 +682,10 @@ def main():
                "--log",    str(LOGS_DIR / f"02_filter_{name}.log")]
         if args.verbose:
             cmd.append("-v")
+        if not args.convert_mse:
+            cmd.append("--no-convert-mse")
+        if args.strip_caps:
+            cmd.append("--strip-caps")
         result = subprocess.run(cmd, check=False, stderr=subprocess.PIPE)
         if result.stderr:
             _logger.warning(result.stderr.decode(errors="replace").strip())

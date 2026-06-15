@@ -5,6 +5,11 @@ import numpy as np
 from pathlib import Path
 from Bio.PDB import MMCIFParser
 
+# Default location of the pre-computed matrix (produced by scrape_pdb_bind/scripts/06_tm_matrix.py)
+_SCRAPE_ROOT   = Path(__file__).resolve().parents[2] / "scrape_pdb_bind"
+_MATRIX_NPZ    = _SCRAPE_ROOT / "outputs" / "tm_score_matrix.npz"
+_MATRIX_IDS    = _SCRAPE_ROOT / "outputs" / "tm_score_ids.txt"
+
 AA3_TO_1 = {
     "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
     "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",
@@ -135,7 +140,56 @@ def filter_tm_score_receptor(rows, threshold, fixed_cif_dir):
     return kept
 
 
+def filter_tm_score_receptor_matrix(rows, threshold):
+    """Greedy TM-score clustering using a pre-computed matrix (fast path).
+
+    Loads scrape_pdb_bind/outputs/tm_score_matrix.npz produced by 06_tm_matrix.py.
+    Returns the filtered rows, or None if the matrix cannot be used for this pool
+    (missing entries → caller should fall back to on-the-fly computation).
+    """
+    if not _MATRIX_NPZ.exists() or not _MATRIX_IDS.exists():
+        return None
+
+    all_ids  = _MATRIX_IDS.read_text().splitlines()
+    id_to_idx = {pid: i for i, pid in enumerate(all_ids)}
+
+    pool_ids = [r["pdb_id"] for r in rows]
+    missing  = [pid for pid in pool_ids if pid not in id_to_idx]
+    if missing:
+        print(f"  TM-score matrix: {len(missing)} pool entries not in matrix "
+              f"— falling back to on-the-fly computation.")
+        return None
+
+    data = np.load(_MATRIX_NPZ)
+    full_matrix = data["matrix"]
+
+    idx   = [id_to_idx[pid] for pid in pool_ids]
+    mat   = full_matrix[np.ix_(idx, idx)]
+
+    sorted_rows  = sorted(rows, key=_res_sort_key)
+    sorted_local = [pool_ids.index(r["pdb_id"]) for r in sorted_rows]
+
+    kept_local = []
+    for li in sorted_local:
+        if not kept_local or not np.any(mat[li, kept_local] >= threshold):
+            kept_local.append(li)
+
+    kept_ids = {pool_ids[li] for li in kept_local}
+    kept     = [r for r in rows if r["pdb_id"] in kept_ids]
+
+    n_before = len(rows)
+    print(f"  TM-score receptor matrix (threshold={threshold:.2f}): "
+          f"{len(kept)} of {n_before} entries kept "
+          f"({n_before - len(kept)} removed)  [pre-computed matrix]")
+    return kept
+
+
 def apply_structural_redundancy_filters(rows, args, fixed_cif_dir):
     if getattr(args, "tm_score_receptor", None) is not None:
-        rows = filter_tm_score_receptor(rows, args.tm_score_receptor, fixed_cif_dir)
+        threshold = args.tm_score_receptor
+        result = filter_tm_score_receptor_matrix(rows, threshold)
+        if result is None:
+            rows = filter_tm_score_receptor(rows, threshold, fixed_cif_dir)
+        else:
+            rows = result
     return rows

@@ -6,11 +6,14 @@ Usage:
   python pepxpro.py scrape --steps filter summary
   python pepxpro.py scrape --force
   python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx
+  python pepxpro.py scrape -v --index scrape_pdb_bind/inputs/INDEX_general_PL.2020R1.lst
+  python pepxpro.py config --print
 """
 
 import argparse
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -21,26 +24,33 @@ SCRAPE_SCRIPTS = {
     "summary":       ROOT / "scrape_pdb_bind/scripts/03_summary.py",
     "external":      ROOT / "scrape_pdb_bind/scripts/04_external.py",
     "distributions": ROOT / "scrape_pdb_bind/scripts/05_distributions.py",
+    "tm_matrix":     ROOT / "scrape_pdb_bind/scripts/06_tm_matrix.py",
 }
 SCRAPE_ORDER         = ["download", "filter", "summary", "distributions"]
 SCRAPE_ORDER_EXT     = ["download", "filter", "summary", "external", "distributions"]
-SCRAPE_STEP_CHOICES  = ["download", "filter", "summary", "external", "distributions"]
+SCRAPE_STEP_CHOICES  = ["download", "filter", "summary", "external", "distributions", "tm_matrix"]
 
 
 def run_scrape(args):
     if args.steps:
         steps = args.steps
     elif getattr(args, "external_input", None):
-        steps = SCRAPE_ORDER_EXT
+        steps = SCRAPE_ORDER_EXT + (["tm_matrix"] if getattr(args, "precompute_tm", False) else [])
     else:
-        steps = SCRAPE_ORDER
+        steps = SCRAPE_ORDER + (["tm_matrix"] if getattr(args, "precompute_tm", False) else [])
 
     for step in steps:
         cmd = [sys.executable, str(SCRAPE_SCRIPTS[step])]
         if args.verbose:
             cmd.append("-v")
+        if step == "download" and getattr(args, "index", None):
+            cmd.extend(["--index", str(args.index)])
         if step == "filter" and getattr(args, "force", False):
             cmd.append("--force")
+        if step in ("filter", "external") and not getattr(args, "convert_mse", True):
+            cmd.append("--no-convert-mse")
+        if step in ("filter", "external") and getattr(args, "strip_caps", False):
+            cmd.append("--strip-caps")
         if step == "external":
             if not getattr(args, "external_input", None):
                 sys.stderr.write("[scrape/external] --external-input FILE is required.\n")
@@ -50,17 +60,123 @@ def run_scrape(args):
             merged = ROOT / "scrape_pdb_bind/outputs/summary_merged.tsv"
             cmd.extend(["--summary-tsv", str(merged)])
 
+        t0 = time.perf_counter()
         result = subprocess.run(
             cmd,
             stdout=None if args.verbose else subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
+        elapsed = time.perf_counter() - t0
 
         if result.returncode != 0:
             sys.stderr.write(f"\n[scrape/{step}] ERROR (exit {result.returncode})\n")
             if result.stderr:
                 sys.stderr.write(result.stderr.decode())
             sys.exit(result.returncode)
+
+        if args.verbose:
+            mins, secs = divmod(int(elapsed), 60)
+            t_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+            sys.stdout.write(f"[scrape/{step}] elapsed: {t_str}\n")
+            sys.stdout.flush()
+
+
+def run_config(_args):
+    import re
+
+    def _const(filepath, varname):
+        """Read one constant from a Python source file by regex, stripping inline comments."""
+        src = Path(filepath).read_text(encoding="utf-8")
+        m = re.search(rf'^{varname}\s*=\s*(.+)', src, re.MULTILINE)
+        if not m:
+            return "?"
+        val = m.group(1)
+        val = re.sub(r'\s*#.*$', '', val)  # strip inline comment
+        return val.strip()
+
+    FILTER_PY = ROOT / "scrape_pdb_bind/modules/filter.py"
+    DL_PY     = ROOT / "scrape_pdb_bind/modules/download.py"
+    SR_PY     = ROOT / "gen_sample/modules/sequence_redundancy.py"
+    BENCH_PY  = ROOT / "pepxpro_benchmark/scripts/01_make_benchmark.py"
+
+    bench_script = ROOT / "pepxpro_benchmark/scripts/01_make_benchmark.py"
+
+    W = 48  # column width for alignment
+
+    def row(key, val, note="", flag=""):
+        label = f"[{flag}]" if flag else ""
+        line  = f"{key:<28} = {str(val):<14} {label}"
+        if note:
+            line += f"  # {note}"
+        print(line)
+
+    def section(title):
+        bar = "─" * (W - len(title) - 3)
+        print(f"\n# ── {title} {bar}")
+
+    print("# PepXPro — default parameters")
+    print("# Usage: python pepxpro.py config --print")
+    print("#")
+    print("# [CLI]        change via command-line flag (see --help)")
+    print("# [hardcoded]  edit the source file directly to change")
+
+    # ── scrape / download ─────────────────────────────────────────────────────
+    section("scrape / 01_download.py")
+    row("index",         "inputs/INDEX_general_PL.2020", "PDBbind index file",          "CLI")
+    row("temperature_K", 300.0,  "fallback when not in index comment field",             "CLI")
+    row("n_workers",     _const(DL_PY, "MAX_WORKERS"), "concurrent CIF downloads",        "hardcoded")
+
+    # ── scrape / filter ───────────────────────────────────────────────────────
+    section("scrape / 02_filter.py")
+    row("convert_mse",            "true",  "MSE→MET via PDBFixer  (--no-convert-mse)",  "CLI")
+    row("strip_caps",             "false", "remove ACE/NME/NH2 if not at interface",    "CLI")
+    row("neighbor_cutoff_A",      _const(FILTER_PY, "NEIGHBOR_CUTOFF_A"),      "receptor identification radius","hardcoded")
+    row("max_receptor_gap",       _const(FILTER_PY, "MAX_RECEPTOR_GAP"),       "max gap in receptor numbering", "hardcoded")
+    row("peptide_bond_cutoff_A",  _const(FILTER_PY, "PEPTIDE_BOND_CUTOFF"),    "covalent terminus detection",   "hardcoded")
+    row("peptide_copy_threshold", _const(FILTER_PY, "PEPTIDE_COPY_THRESHOLD"), "seq similarity → reject peptide copy", "hardcoded")
+    row("contact_cutoff_A",       _const(FILTER_PY, "CONTACT_CUTOFF_A"),       "n_contacts heavy-atom cutoff",  "hardcoded")
+    row("hbond_cutoff_A",         _const(FILTER_PY, "HBOND_CUTOFF_A"),         "n_hbonds N/O/S proximity proxy","hardcoded")
+    row("cap_interface_cutoff_A", _const(FILTER_PY, "CAP_INTERFACE_CUTOFF_A"), "reject cap if closer than this to receptor", "hardcoded")
+
+    # ── gen_sample / quality ──────────────────────────────────────────────────
+    section("gen_sample / quality filters  (01_gen_sample.py)")
+    row("single_chain",    "true",  "receptor must have exactly 1 chain (--no-single-chain)", "CLI")
+    row("min_peptide",     "",      "--min-peptide N",           "CLI")
+    row("max_peptide",     "",      "--max-peptide N",           "CLI")
+    row("min_receptor",    "",      "--min-receptor N",          "CLI")
+    row("max_receptor",    "",      "--max-receptor N",          "CLI")
+    row("min_dg",          "",      "kcal/mol  --min-dg F",      "CLI")
+    row("max_dg",          "",      "kcal/mol  --max-dg F",      "CLI")
+    row("min_resolution",  "",      "Å  --min-resolution F",     "CLI")
+    row("max_resolution",  "",      "Å  --max-resolution F",     "CLI")
+    row("binding_type",    "both",  "kd | ki | both",            "CLI")
+    row("max_added",       "",      "max residues added by PDBFixer to peptide", "CLI")
+    row("max_receptor_added", "",   "max residues added by PDBFixer to receptor","CLI")
+
+    # ── gen_sample / redundancy ───────────────────────────────────────────────
+    section("gen_sample / redundancy filters  (01_gen_sample.py)")
+    row("seq_id_receptor",  "strict", "preset → CD-HIT ≥ 40%   (strict/medium/lenient/custom)", "CLI")
+    row("seq_id_peptide",   "strict", "preset → pairwise ≥ 70%  (strict/medium/lenient/custom)", "CLI")
+    row("tm_score_receptor","",       "TM-score threshold  --tm-score-receptor F  (disabled by default)", "CLI")
+
+    # ── benchmark ─────────────────────────────────────────────────────────────
+    section("benchmark / 01_make_benchmark.py  (edit file directly)")
+    if BENCH_PY.exists():
+        for var, label, note in [
+            ("SAMPLE_N",        "sample_n",        "number of entries to select"),
+            ("SEED",            "seed",             "random seed"),
+            ("SAMPLING_METHOD", "sampling_method",  "kennard-stone | stratified | kde | cluster"),
+            ("DIMS",            "dims",             "feature space for sampling"),
+            ("SINGLE_CHAIN",    "single_chain",     ""),
+            ("SEQ_ID_RECEPTOR", "seq_id_receptor",  ""),
+            ("SEQ_ID_PEPTIDE",  "seq_id_peptide",   ""),
+            ("TM_SCORE",        "tm_score",         ""),
+        ]:
+            row(label, _const(BENCH_PY, var), note, "hardcoded")
+    else:
+        print(f"  (script not found: {BENCH_PY})")
+
+    print()
 
 
 def main():
@@ -77,15 +193,36 @@ def main():
         "--steps", nargs="+", choices=SCRAPE_STEP_CHOICES, metavar="STEP",
         help=f"Steps to run (default: all standard). Choices: {', '.join(SCRAPE_STEP_CHOICES)}.",
     )
+    p_scrape.add_argument("--index", metavar="FILE",
+                          help="PDBbind index file (default: inputs/INDEX_general_PL.2020). "
+                               "Passed to 01_download.py.")
     p_scrape.add_argument("--force", action="store_true",
                           help="Force reprocess in filter step (ignore cache).")
+    p_scrape.add_argument("--no-convert-mse", dest="convert_mse",
+                          action="store_false", default=True,
+                          help="Disable MSE→MET conversion (enabled by default).")
+    p_scrape.add_argument("--strip-caps", action="store_true",
+                          help="Strip ACE/NME/NH2 terminal caps if not at interface (>4.5 Å).")
+    p_scrape.add_argument("--precompute-tm", action="store_true",
+                          help="Pre-compute receptor TM-score matrix after filtering "
+                               "(06_tm_matrix.py). Saves outputs/tm_score_matrix.npz "
+                               "for fast reuse in gen_sample --tm-score-receptor.")
     p_scrape.add_argument("--external-input", metavar="FILE",
                           help="External dataset file (xlsx/tsv/csv). "
                                "Activates the external step (04_external.py) automatically.")
 
+    p_config = sub.add_parser("config", help="Show pipeline default parameters.")
+    p_config.add_argument("--print", dest="print_params", action="store_true",
+                          help="Print all default parameters for every pipeline stage.")
+
     args = parser.parse_args()
     if args.command == "scrape":
         run_scrape(args)
+    elif args.command == "config":
+        if args.print_params:
+            run_config(args)
+        else:
+            p_config.print_help()
 
 
 if __name__ == "__main__":

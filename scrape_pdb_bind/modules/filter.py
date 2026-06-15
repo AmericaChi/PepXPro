@@ -72,6 +72,15 @@ AMBER14_HETATM = {
 
 WATER_RESIDUES = {"HOH", "WAT", "H2O", "TIP", "TIP3", "TIP3P", "SOL"}
 
+# MSE → MET: crystallographic phasing artefact, biologically identical.
+# PDBFixer converts these via replaceNonstandardResidues() during build.
+PDBFIXER_CONVERTS = {"MSE"}
+
+# Terminal capping groups: not real residues, can be stripped if not at interface.
+TERMINAL_CAPS = {"ACE", "NME", "NH2"}
+
+CAP_INTERFACE_CUTOFF_A = 4.5  # caps within this distance of receptor are kept / rejected
+
 NEIGHBOR_CUTOFF_A    = 4.0
 MAX_RECEPTOR_GAP     = 10
 PEPTIDE_BOND_CUTOFF  = 1.8
@@ -93,11 +102,12 @@ def peptide_similarity(residues_a, residues_b):
     return SequenceMatcher(None, residues_a, residues_b).ratio()
 
 
-def check_amber14(residue_names):
-    """Return list of non-AMBER14 residue names (empty = pass)."""
+def check_amber14(residue_names, exempt=frozenset()):
+    """Return list of non-AMBER14 residue names (empty = pass).
+    exempt: additional residue names to skip (e.g. PDBFIXER_CONVERTS, TERMINAL_CAPS)."""
     bad = []
     for name in residue_names:
-        if name in WATER_RESIDUES:
+        if name in WATER_RESIDUES or name in exempt:
             continue
         if name not in AMBER14_AA and name not in AMBER14_HETATM:
             bad.append(name)
@@ -208,9 +218,11 @@ def compute_interface_contacts(fixed_cif_path, pep_chain, rec_chains):
 # ---------------------------------------------------------------------------
 
 def build_fixed_cif(pdb_id, cif_path, peptide_chain_id, receptor_chain_ids,
-                    fixed_dir, ion_chain_ids=None):
+                    fixed_dir, ion_chain_ids=None, convert_mse=True, caps_to_strip=None):
     """Load raw CIF, strip non-system chains, fill missing residues, write fixed CIF.
     Returns (True, {residues_added, chain_id_map}) or (False, error_msg).
+    convert_mse: call replaceNonstandardResidues() to convert MSE→MET.
+    caps_to_strip: list of cap residue names (ACE/NME/NH2) to remove from peptide terminus.
     """
     fixed_dir = Path(fixed_dir)
     try:
@@ -230,6 +242,9 @@ def build_fixed_cif(pdb_id, cif_path, peptide_chain_id, receptor_chain_ids,
         fixer.topology = modeller.topology
         fixer.positions = modeller.positions
 
+    # findMissingResidues must run while caps are still present in the topology.
+    # If we delete the cap first, PDBFixer sees it as missing in SEQRES and re-adds
+    # it during addMissingAtoms — defeating the strip entirely.
     fixer.findMissingResidues()
 
     chains = list(fixer.topology.chains())
@@ -240,6 +255,28 @@ def build_fixed_cif(pdb_id, cif_path, peptide_chain_id, receptor_chain_ids,
         n_res = sum(1 for _ in chains[chain_idx].residues())
         if res_idx == 0 or res_idx >= n_res:
             del fixer.missingResidues[key]
+
+    # Strip terminal caps after findMissingResidues so they are not catalogued as
+    # missing residues and therefore not re-added by addMissingAtoms.
+    if caps_to_strip:
+        cap_names = set(caps_to_strip)
+        pep_chain = next((c for c in modeller.topology.chains()
+                          if c.id == peptide_chain_id), None)
+        if pep_chain:
+            pep_residues = list(pep_chain.residues())
+            to_delete = []
+            if pep_residues and pep_residues[0].name in cap_names:
+                to_delete.append(pep_residues[0])
+            if pep_residues and pep_residues[-1].name in cap_names:
+                to_delete.append(pep_residues[-1])
+            if to_delete:
+                modeller.delete(to_delete)
+                fixer.topology = modeller.topology
+                fixer.positions = modeller.positions
+
+    if convert_mse:
+        fixer.findNonstandardResidues()
+        fixer.replaceNonstandardResidues()
 
     residues_before = {c.id: sum(1 for _ in c.residues()) for c in fixer.topology.chains()}
     try:
@@ -354,7 +391,7 @@ def get_assemblies(pdb_id, pdb_cache):
 # Assembly checker (core logic)
 # ---------------------------------------------------------------------------
 
-def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
+def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir, convert_mse=True, strip_caps=False):
     """Evaluate one assembly CIF. Returns result dict with accepted bool and
     all metadata fields (sequences, resolution, secondary structure)."""
     raw_counts, full_seq_auth, full_seq_label = raw_chain_data(cif_path)
@@ -424,7 +461,15 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
             f"but PDBFixer loaded only {topology_pep} (non-standard residues dropped)"
         ))
 
-    bad = check_amber14(peptide_chain["residue_names"])
+    # Build exempt sets: MSE if convert_mse; caps if strip_caps (distance checked later)
+    pep_exempt = set()
+    if convert_mse:
+        pep_exempt |= PDBFIXER_CONVERTS
+    if strip_caps:
+        pep_exempt |= TERMINAL_CAPS
+    rec_exempt = PDBFIXER_CONVERTS if convert_mse else frozenset()
+
+    bad = check_amber14(peptide_chain["residue_names"], exempt=pep_exempt)
     if bad:
         descs = [ptm_description(r) for r in bad]
         return dict(accepted=False, reject_reason=(
@@ -451,7 +496,7 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
         return dict(accepted=False, reject_reason=f"No receptor chains within {NEIGHBOR_CUTOFF_A} A of peptide")
 
     for c in receptor_chains:
-        bad = check_amber14(c["residue_names"])
+        bad = check_amber14(c["residue_names"], exempt=rec_exempt)
         if bad:
             descs = [ptm_description(r) for r in bad]
             return dict(accepted=False, reject_reason=(
@@ -468,6 +513,36 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
                     f"Receptor chain {c['chain_id']} has a gap of {gap} residues "
                     f"(max allowed: {MAX_RECEPTOR_GAP})"
                 ))
+
+    # --- Terminal cap detection and interface distance ---
+    caps_to_strip = []
+    cap_min_dist  = None
+    if strip_caps:
+        pep_names = peptide_chain["residue_names"]
+        rec_pos_all = np.concatenate([positions_A[c["atom_indices"]] for c in receptor_chains])
+        rec_tree = cKDTree(rec_pos_all)
+        topo_pep = next((c for c in topology.chains()
+                         if c.id == peptide_chain["chain_id"]), None)
+        pep_res_list = list(topo_pep.residues()) if topo_pep else []
+
+        for cap, idx in [("ACE", 0), ("NME", -1), ("NH2", -1)]:
+            if not pep_names or pep_names[idx] != cap:
+                continue
+            if not pep_res_list:
+                continue
+            cap_res = pep_res_list[idx]
+            cap_indices = [a.index for a in cap_res.atoms()]
+            if not cap_indices:
+                continue
+            dists, _ = rec_tree.query(positions_A[cap_indices], k=1)
+            min_d = float(dists.min())
+            if cap_min_dist is None or min_d < cap_min_dist:
+                cap_min_dist = min_d
+            if min_d <= CAP_INTERFACE_CUTOFF_A:
+                return dict(accepted=False, reject_reason=(
+                    f"{cap} cap at peptide interface (min dist {min_d:.1f} A)"
+                ))
+            caps_to_strip.append(cap)
 
     topo_chains = {c.id: c for c in topology.chains()}
 
@@ -544,7 +619,8 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
 
     # --- Build fixed CIF ---
     ok, build_result = build_fixed_cif(
-        pdb_id, cif_path, peptide_chain["chain_id"], receptor_chain_ids, fixed_dir, ion_chain_ids
+        pdb_id, cif_path, peptide_chain["chain_id"], receptor_chain_ids, fixed_dir,
+        ion_chain_ids, convert_mse=convert_mse, caps_to_strip=caps_to_strip,
     )
     if not ok:
         return dict(accepted=False, reject_reason=f"Fixed CIF build failed: {build_result}")
@@ -606,6 +682,10 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
     # --- Interface contacts and H-bond proxies (from fixed CIF) ---
     n_contacts, n_hbonds = compute_interface_contacts(fixed_cif_path, pep_id, rec_ids)
 
+    all_pep_names = peptide_chain["residue_names"]
+    all_rec_names = [r for c in receptor_chains for r in c["residue_names"]]
+    had_mse = "MSE" in all_pep_names or "MSE" in all_rec_names
+
     return dict(
         accepted=True,
         peptide_chain=pep_id,
@@ -626,6 +706,9 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
         n_hbonds=n_hbonds,
         ion_chains=ion_chains_out,
         residues_added=residues_added,
+        mse_converted="Y" if (convert_mse and had_mse) else "",
+        caps_stripped=",".join(caps_to_strip) if caps_to_strip else "",
+        cap_min_dist_A=f"{cap_min_dist:.1f}" if cap_min_dist is not None else "",
         reject_reason="",
     )
 
@@ -634,7 +717,7 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def process_entry(pdb_id, n_mer, pdb_cache, fixed_dir):
+def process_entry(pdb_id, n_mer, pdb_cache, fixed_dir, convert_mse=True, strip_caps=False):
     """Select best assembly and run full filter pipeline for one entry."""
     assemblies = get_assemblies(pdb_id, pdb_cache)
     if not assemblies:
@@ -645,6 +728,7 @@ def process_entry(pdb_id, n_mer, pdb_cache, fixed_dir):
     n_chains, asm_num, cif_path = assemblies[0]
     print(f"    assemblies: {asm_summary}  -> using asm{asm_num}")
 
-    result = _check_assembly(pdb_id, cif_path, n_mer, fixed_dir)
+    result = _check_assembly(pdb_id, cif_path, n_mer, fixed_dir,
+                             convert_mse=convert_mse, strip_caps=strip_caps)
     result["assembly_num"] = asm_num
     return result

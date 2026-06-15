@@ -28,6 +28,15 @@ PepXPro is a modular framework for generating peptide–protein benchmark datase
 - Benchmark-oriented dataset generation
 - ML-friendly dataset splits
 
+## pepxpro.py — top-level runner
+
+```bash
+python pepxpro.py scrape -v                          # full pipeline
+python pepxpro.py scrape -v --strip-caps             # strip terminal caps not at interface
+python pepxpro.py scrape -v --no-convert-mse         # disable MSE→MET (on by default)
+python pepxpro.py config --print                     # show all default parameters
+```
+
 ## Implemented gen_sample modules
 
 - Quality filtering (length, dG, resolution, binding type, added residues, exclusion list)
@@ -103,7 +112,7 @@ conda activate pepxpro
 
 To create from scratch:
 ```bash
-conda create -n pepxpro -c conda-forge python=3.12 openmm matplotlib numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source ipykernel jupyter
+conda create -n pepxpro -c conda-forge python=3.12 openmm matplotlib seaborn numpy pandas biopython pdbfixer scipy scikit-learn dssp pymol-open-source ipykernel jupyter
 ```
 
 Then install cd-hit (bioconda) and tmtools (pip-only):

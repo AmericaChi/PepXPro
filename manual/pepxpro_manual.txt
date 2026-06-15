@@ -30,6 +30,12 @@ Or run the entire pipeline with the top-level runner (from the project root):
 
   python pepxpro.py scrape -v
   python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx   # includes external step
+  python pepxpro.py scrape -v --no-convert-mse     # disable MSE→MET conversion
+  python pepxpro.py scrape -v --strip-caps          # strip terminal caps not at interface
+
+To view all default parameters across every pipeline stage:
+
+  python pepxpro.py config --print
 
 01_download.py FLAGS
 --------------------
@@ -39,6 +45,17 @@ Or run the entire pipeline with the top-level runner (from the project root):
 --temperature K   Fallback temperature in K for ΔG = RT ln(Kd/Ki) when not reported in the
                   index notes (default: 300.0). Temperature is parsed automatically from
                   the index comment field when available.
+
+02_filter.py FLAGS
+------------------
+--force           Ignore existing cache and reprocess all entries from scratch.
+--no-convert-mse  Disable automatic MSE→MET conversion (conversion is ON by default).
+                  MSE (selenomethionine) is a crystallographic substitute for MET with
+                  identical biology; converting it allows these entries to be accepted.
+--strip-caps      Remove ACE/NME/NH2 terminal capping groups from the peptide if their
+                  atoms are >4.5 Å from the receptor interface. Capping groups at the
+                  interface are always rejected even with this flag.
+                  Saves cap_min_dist_A to filtered_systems.tsv for transparency.
 
 INPUTS
 ------
@@ -66,6 +83,9 @@ filtered_systems.tsv columns (accepted rows):
   receptor_ss (_struct_conf deposited), receptor_ss_dssp (Biopython DSSP),
   receptor_description, receptor_func_class,
   n_contacts (heavy-atom contacts ≤4.5 Å), n_hbonds (N/O/S proxies ≤3.5 Å),
+  mse_converted ("Y" if MSE→MET was applied, else empty),
+  caps_stripped (comma-separated cap names removed, e.g. "ACE" or "ACE,NME"; empty if none),
+  cap_min_dist_A (minimum cap–receptor distance in Å; empty if no caps present),
   resolution, reject_reason
 
 summary.tsv columns:
@@ -102,6 +122,8 @@ FLAGS
 --temperature K     Fallback temperature in K for ΔG = RT ln(Kd/Ki) when not present in
                     the dataset (default: 300.0). Uses the dataset temperature column
                     when available.
+--no-convert-mse    Disable MSE→MET conversion in the filter step (see 02_filter.py flags).
+--strip-caps        Strip ACE/NME/NH2 caps in the filter step if not at interface (see above).
 
 COLUMN MAPPING
 --------------

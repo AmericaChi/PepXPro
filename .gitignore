@@ -3,6 +3,9 @@ pdb_cache/
 **/fixed_cif/
 **/cif/
 **/pdb/
+# Allow versioned benchmark PDB structures
+!pepxpro_benchmark/**/pdb/
+!pepxpro_benchmark/**/pdb/**
 
 # Logs
 *.log
