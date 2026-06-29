@@ -186,6 +186,10 @@ def build_parser():
                           help="Maximum deposition year.")
     filt_grp.add_argument("--exclude", metavar="FILE",
                           help="File with one pdb_id per line to exclude.")
+    filt_grp.add_argument("--peptide-topology",
+                          choices=["linear", "cyclic_disulfide", "both"], default="both",
+                          help="Filter by peptide topology: linear, cyclic_disulfide, or both "
+                               "(default: both).")
 
     # ---- Redundancy ----
     red_grp = p.add_argument_group(

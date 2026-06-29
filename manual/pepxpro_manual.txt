@@ -155,9 +155,9 @@ Writes to gen_sample/outputs/run_XX/.
 
   python 01_gen_sample.py --sample 20
   python 01_gen_sample.py --dry-run
-  python 02_benchmark_sampling.py
-  python 03_compare_runs.py --run run_01
-  python 05_view_sample.py --run 1
+  python 00_plot_samplingMethods.py
+  python 02_plot_sampleDist.py --run run_01
+  python 03_view_sample.py --run 1
 
 OUTPUT (gen_sample/outputs/run_XX/)
 ------------------------------------
@@ -168,7 +168,7 @@ pool_redundancy.tsv        Entries after redundancy filters.
 peptide_sequences.fasta    (only with --export-fasta)
 receptor_sequences.fasta   (only with --export-fasta)
 cif/  or  pdb/             Structure files (only with --link-cifs / --copy-cifs / --protonate)
-plots/run_comparison.png   (only with 03_compare_runs.py)
+plots/run_comparison.png   (only with 02_plot_sampleDist.py)
 
 MODES  (one required)
 ----------------------
@@ -248,7 +248,7 @@ python 01_gen_sample.py --pick 1abc --protonate --format pdb
 
 
 ===========================================================================
-SCRIPT: 03_compare_runs.py
+SCRIPT: 02_plot_sampleDist.py
 ===========================================================================
 Distribution plots for a single run: quality pool → redundancy pool → sample.
 Output: run_XX/plots/run_comparison[_dimx_dimy].png
@@ -264,14 +264,14 @@ FLAGS
 
 USAGE EXAMPLES
 --------------
-python 03_compare_runs.py --run run_01
-python 03_compare_runs.py --run run_01 --dims dg ss_class
-python 03_compare_runs.py --run run_01 --dims dg func_class
-python 03_compare_runs.py --run-dir ../../pepxpro_benchmark/v1 --dims dg ss_class
+python 02_plot_sampleDist.py --run run_01
+python 02_plot_sampleDist.py --run run_01 --dims dg ss_class
+python 02_plot_sampleDist.py --run run_01 --dims dg func_class
+python 02_plot_sampleDist.py --run-dir ../../pepxpro_benchmark/v1 --dims dg ss_class
 
 
 ===========================================================================
-SCRIPT: 02_benchmark_sampling.py
+SCRIPT: 00_plot_samplingMethods.py
 ===========================================================================
 Compares all 5 sampling methods on the same filtered pool.
 Output: gen_sample/outputs/plots/sampling_benchmark.png
@@ -284,12 +284,12 @@ FLAGS
 
 USAGE EXAMPLES
 --------------
-python 02_benchmark_sampling.py --n 30 --seed 42
-python 02_benchmark_sampling.py --dims rec_len pep_len
+python 00_plot_samplingMethods.py --n 30 --seed 42
+python 00_plot_samplingMethods.py --dims rec_len pep_len
 
 
 ===========================================================================
-SCRIPT: 05_view_sample.py
+SCRIPT: 03_view_sample.py
 ===========================================================================
 Browse run structures in PyMOL. Left/right arrows to navigate.
 Structures shown in dG order (tightest first).
@@ -301,9 +301,9 @@ FLAGS
 
 USAGE EXAMPLES
 --------------
-python 05_view_sample.py
-python 05_view_sample.py --run 3
-python 05_view_sample.py --run 8 --cif-dir cif
+python 03_view_sample.py
+python 03_view_sample.py --run 3
+python 03_view_sample.py --run 8 --cif-dir cif
 
 
 ===========================================================================
@@ -352,11 +352,11 @@ Current v1 configuration:
 
 VISUALIZING A BENCHMARK VERSION
 ---------------------------------
-Use 05_view_sample.py from gen_sample with --cif-dir pointing to the benchmark:
+Use 03_view_sample.py from gen_sample with --cif-dir pointing to the benchmark:
   cd gen_sample/scripts
-  python 05_view_sample.py --run-dir ../../pepxpro_benchmark/v1 --cif-dir cif
+  python 03_view_sample.py --run-dir ../../pepxpro_benchmark/v1 --cif-dir cif
 
-(05_view_sample.py does not yet support --run-dir; use --cif-dir with any run
+(03_view_sample.py does not yet support --run-dir; use --cif-dir with any run
 that shares the same sample.tsv, or run gen_sample once with --link-cifs
 pointing to the same sample.)
 

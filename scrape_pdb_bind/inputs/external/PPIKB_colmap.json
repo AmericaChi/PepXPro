@@ -1,0 +1,9 @@
+{
+  "pdb_id": "PDB_ID",
+  "n_mer": "Peptide_Length",
+  "peptide_seq": "Peptide_Sequence",
+  "year": "Release_Year",
+  "dg_exp": "Affinity",
+  "resolution": null,
+  "temperature": null
+}

@@ -210,7 +210,7 @@ def generate_plots(version_dir):
                          ("func_class", "run_comparison_dg_func_class.png")]:
         print(f"  Generating {fname} ...")
         subprocess.run(
-            [sys.executable, str(_gen_scripts / "03_compare_runs.py"),
+            [sys.executable, str(_gen_scripts / "02_plot_sampleDist.py"),
              "--run-dir", str(version_dir),
              "--dims",    "dg", dim_y,
              "--output",  str(plots_dst / fname)],

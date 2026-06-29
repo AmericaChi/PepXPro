@@ -5,9 +5,9 @@ Chains are coloured with util.cbc.  Navigate with left/right arrow keys.
 Structures are shown in ΔG order (tightest binder first).
 
 Usage:
-  python 05_view_sample.py              # latest run
-  python 05_view_sample.py --run 3      # run_03/sample.tsv
-  python 05_view_sample.py --run 3 --cif-dir /path/to/cif
+  python 03_view_sample.py              # latest run
+  python 03_view_sample.py --run 3      # run_03/sample.tsv
+  python 03_view_sample.py --run 3 --cif-dir /path/to/cif
 
   CIF lookup order: run_XX/cif/  →  run_XX/pdb/  →  scrape_pdb_bind/fixed_cif/
   Override all with --cif-dir.

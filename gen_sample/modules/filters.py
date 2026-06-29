@@ -155,6 +155,15 @@ def filter_exclude(rows, exclude_path):
     return rows
 
 
+def filter_peptide_topology(rows, topology):
+    """Keep only entries matching 'linear', 'cyclic_disulfide', or 'both'."""
+    before = len(rows)
+    if topology != "both":
+        rows = [r for r in rows if r.get("peptide_topology", "linear") == topology]
+        _report(f"--peptide-topology {topology}", before, len(rows))
+    return rows
+
+
 def apply_quality_filters(rows, args, filtered_tsv_path):
     """Apply all active filters from parsed argparse args."""
     if getattr(args, "single_chain", False):
@@ -189,4 +198,6 @@ def apply_quality_filters(rows, args, filtered_tsv_path):
         rows = filter_max_year(rows, args.max_year)
     if getattr(args, "exclude", None) is not None:
         rows = filter_exclude(rows, args.exclude)
+    if getattr(args, "peptide_topology", "both") != "both":
+        rows = filter_peptide_topology(rows, args.peptide_topology)
     return rows

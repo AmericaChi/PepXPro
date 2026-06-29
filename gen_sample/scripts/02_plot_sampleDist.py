@@ -1,5 +1,5 @@
 """
-03_compare_runs.py — Plot filtering and sampling distribution for a single run.
+02_plot_sampleDist.py — Plot filtering and sampling distribution for a single run.
 
 Reads pool_quality.tsv, pool_redundancy.tsv, and sample.tsv from a run directory
 and produces a 1x3 panel plot:
@@ -10,7 +10,7 @@ and produces a 1x3 panel plot:
 Output: run_XX/plots/run_comparison.png
 
 Usage:
-  python 03_compare_runs.py --run run_01
+  python 02_plot_sampleDist.py --run run_01
 """
 
 import argparse

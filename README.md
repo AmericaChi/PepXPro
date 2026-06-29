@@ -139,9 +139,9 @@ cd ../../gen_sample/scripts
 
   python 01_gen_sample.py --sample 20
   python 01_gen_sample.py --dry-run
-  python 02_benchmark_sampling.py
-  python 03_compare_runs.py --run run_01
-  python 05_view_sample.py --run 1
+  python 00_plot_samplingMethods.py
+  python 02_plot_sampleDist.py --run run_01
+  python 03_view_sample.py --run 1
 
 ```
 OUTPUT (gen_sample/outputs/run_XX/)
@@ -155,7 +155,7 @@ pool_redundancy.tsv        Entries after redundancy filters.
 peptide_sequences.fasta    (only with --export-fasta)
 receptor_sequences.fasta   (only with --export-fasta)
 cif/  or  pdb/             Structure files (only with --link-cifs / --copy-cifs / --protonate)
-plots/run_comparison.png   (only with 03_compare_runs.py)
+plots/run_comparison.png   (only with 02_plot_sampleDist.py)
 ```
 
 ### Optional: Explore interactively

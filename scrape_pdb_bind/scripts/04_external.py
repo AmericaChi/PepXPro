@@ -120,11 +120,13 @@ def _load_file(path):
         except ImportError:
             print("  Error: pandas required for xlsx.  conda install pandas")
             sys.exit(1)
-        # First pass: detect whether we need to skip merged-cell header rows
-        df = pd.read_excel(path, header=0, dtype=str, nrows=3)
-        if _unnamed_fraction(df.columns) > 0.3:
+        # Detect whether we need to skip merged-cell header rows
+        df_sample = pd.read_excel(path, header=0, dtype=str, nrows=3)
+        if _unnamed_fraction(df_sample.columns) > 0.3:
             # Multi-row header (e.g. PEPBI): the real column names are in row 1
             df = pd.read_excel(path, header=1, dtype=str)
+        else:
+            df = pd.read_excel(path, header=0, dtype=str)
         df.fillna("", inplace=True)
         return df.to_dict(orient="records")
 
@@ -240,7 +242,7 @@ def _resolve_colmap(columns, name, colmap_path):
     colmap_path.parent.mkdir(parents=True, exist_ok=True)
     with open(colmap_path, "w", encoding="utf-8") as fh:
         json.dump(colmap, fh, indent=2, ensure_ascii=False)
-    print(f"  Column map saved → {colmap_path.name}")
+    print(f"  Column map saved -> {colmap_path.name}")
     return colmap
 
 
@@ -315,7 +317,13 @@ def _compute_dg(row, colmap, fallback_temp=DEFAULT_TEMP_K):
             try:
                 return f"{float(raw):.3f}", "kd", "N"
             except ValueError:
-                pass
+                # Try "TYPE=VALUE UNIT" format (e.g. "Kd=1000 nM", "Ki=0.5 uM")
+                m = re.match(r'(Kd|Ki|kd|ki)\s*=\s*(.+)', raw, re.IGNORECASE)
+                if m:
+                    atype = m.group(1).lower()
+                    conc  = _parse_conc(m.group(2).strip(), atype)
+                    if conc:
+                        return f"{R_KCAL * t * math.log(conc):.3f}", atype, "N"
 
     # 2. Kd → dG = RT ln(Kd)
     if colmap.get("kd"):
@@ -441,10 +449,15 @@ def normalize_entries(raw_rows, colmap, dataset_name, fallback_temp=DEFAULT_TEMP
 # ── Deduplication ─────────────────────────────────────────────────────────────
 
 def load_existing_pdb_ids(outputs_dir):
-    """Collect all pdb_ids already in the standard PDBbind pipeline outputs."""
+    """Collect all pdb_ids already in PDBbind outputs and any previously processed external datasets."""
     existing = set()
-    for fname in ("peptide_entries.tsv", "summary.tsv"):
-        path = Path(outputs_dir) / fname
+    outputs_dir = Path(outputs_dir)
+    skip = {"summary.tsv", "summary_merged.tsv"}
+    sources = (
+        [outputs_dir / f for f in ("peptide_entries.tsv", "summary.tsv")]
+        + [p for p in outputs_dir.glob("summary_*.tsv") if p.name not in skip]
+    )
+    for path in sources:
         if not path.exists():
             continue
         for row in load_tsv(path):
@@ -487,7 +500,15 @@ def merge_summaries(std_tsv, ext_tsvs, merged_tsv):
 
     merged = [{c: r.get(c, "") for c in all_cols} for r in rows_std]
     counts = []
+    seen_ids: dict[str, str] = {}  # pdb_id -> source name
     for src_name, rows in ext_rows_by_source:
+        for r in rows:
+            pid = r.get("pdb_id", "").strip().lower()
+            if pid and pid in seen_ids:
+                print(f"  WARNING: {pid} appears in both '{seen_ids[pid]}' and '{src_name}' "
+                      f"-- remove one summary_*.tsv and re-run --merge-only")
+            elif pid:
+                seen_ids[pid] = src_name
         merged.extend({c: r.get(c, "") for c in all_cols} for r in rows)
         counts.append(f"{src_name}={len(rows)}")
 
@@ -614,7 +635,7 @@ def main():
     existing = load_existing_pdb_ids(OUTPUTS_DIR)
     before   = len(entries)
     entries  = [e for e in entries if e["pdb_id"] not in existing]
-    print(f"  {before - len(entries)} duplicates removed → {len(entries)} new entries")
+    print(f"  {before - len(entries)} duplicates removed -> {len(entries)} new entries")
     if not entries:
         print("  All entries already in PDBbind. Nothing to do.")
         sys.exit(0)
@@ -656,6 +677,7 @@ def main():
     # Resolution fallback: RCSB REST API (assembly CIFs lack _refine.ls_d_res_high)
     still_missing = [e for e in entries if e["resolution"] == "NA"]
     if still_missing:
+        from modules.metadata import extract_exptl_method
         print(f"  Filling resolution from RCSB API for {len(still_missing)} entries ...")
         filled = 0
         for e in still_missing:
@@ -663,8 +685,17 @@ def main():
             if val != "NA":
                 e["resolution"] = val
                 filled += 1
+        remaining = [e for e in still_missing if e["resolution"] == "NA"]
         print(f"  Resolution filled for {filled}/{len(still_missing)} entries "
-              f"({len(still_missing) - filled} remain NA).")
+              f"({len(remaining)} remain NA).")
+        if remaining:
+            method_counts: dict[str, list[str]] = {}
+            for e in remaining:
+                cif = PDB_CACHE / f"{e['pdb_id']}-1.cif"
+                method = extract_exptl_method(cif) if cif.exists() else "NA"
+                method_counts.setdefault(method, []).append(e["pdb_id"])
+            for method, pids in sorted(method_counts.items()):
+                print(f"    {method}: {len(pids)} entries (e.g. {', '.join(pids[:5])})")
 
     # Write peptide_entries_<name>.tsv (after CIF fill)
     entry_cols = ["pdb_id", "n_mer", "year", "binding_type",

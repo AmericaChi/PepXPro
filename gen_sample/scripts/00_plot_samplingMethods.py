@@ -1,5 +1,5 @@
 """
-benchmark_sampling.py — Compare available sampling methods visually.
+00_plot_samplingMethods.py — Compare available sampling methods visually.
 
 Runs all three sampling methods on the same filtered pool and produces a single
 figure showing selected entries in a 2D scatter (dims[0] x dims[1]).
@@ -8,10 +8,10 @@ KDE always samples on dims[0] only; the label reflects this (kde-1D).
 Output: gen_sample/outputs/plots/sampling_benchmark.png
 
 Usage:
-  python benchmark_sampling.py
-  python benchmark_sampling.py --n 30
-  python benchmark_sampling.py --n 20 --seed 42
-  python benchmark_sampling.py --dims rec_len pep_len
+  python 00_plot_samplingMethods.py
+  python 00_plot_samplingMethods.py --n 30
+  python 00_plot_samplingMethods.py --n 20 --seed 42
+  python 00_plot_samplingMethods.py --dims rec_len pep_len
 """
 
 import argparse
@@ -132,7 +132,7 @@ def main():
     plt.close(fig)
 
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOGS_DIR / "02_benchmark_sampling.log"
+    log_path = LOGS_DIR / "00_plot_samplingMethods.log"
     with open(log_path, "w", encoding="ascii") as lf:
         lf.write(f"N={args.n}, seed={args.seed}, dims={args.dims}, pool={len(pool)}\n")
         for method in methods:

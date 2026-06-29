@@ -56,9 +56,16 @@ def run_scrape(args):
                 sys.stderr.write("[scrape/external] --external-input FILE is required.\n")
                 sys.exit(1)
             cmd.extend(["--input", str(args.external_input)])
-        if step == "distributions" and "external" in steps:
-            merged = ROOT / "scrape_pdb_bind/outputs/summary_merged.tsv"
-            cmd.extend(["--summary-tsv", str(merged)])
+            if getattr(args, "name", None):
+                cmd.extend(["--name", args.name])
+        if step == "distributions":
+            summary_dir = ROOT / "scrape_pdb_bind/outputs"
+            if getattr(args, "summary_tsv", None):
+                cmd.extend(["--summary-tsv", str(args.summary_tsv)])
+            elif "external" in steps:
+                cmd.extend(["--summary-tsv", str(summary_dir / "summary_merged.tsv")])
+            else:
+                cmd.extend(["--summary-tsv", str(summary_dir / "summary.tsv")])
 
         t0 = time.perf_counter()
         result = subprocess.run(
@@ -210,6 +217,13 @@ def main():
     p_scrape.add_argument("--external-input", metavar="FILE",
                           help="External dataset file (xlsx/tsv/csv). "
                                "Activates the external step (04_external.py) automatically.")
+    p_scrape.add_argument("--name", metavar="NAME",
+                          help="Short identifier for external dataset output files "
+                               "(e.g. --name PEPBI → summary_PEPBI.tsv). "
+                               "Defaults to the input filename stem.")
+    p_scrape.add_argument("--summary-tsv", metavar="FILE", dest="summary_tsv",
+                          help="Summary TSV to use for the distributions step "
+                               "(e.g. summary_merged.tsv). Inferred automatically when omitted.")
 
     p_config = sub.add_parser("config", help="Show pipeline default parameters.")
     p_config.add_argument("--print", dest="print_params", action="store_true",

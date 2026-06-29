@@ -206,13 +206,13 @@ MERGED DATASET — include external sources:
 
 COMPARE SAMPLING METHODS on the same pool:
 
-  python 02_benchmark_sampling.py --n 20 --seed 42 --dims dg pep_len
+  python 00_plot_samplingMethods.py --n 20 --seed 42 --dims dg pep_len
 
   Output: gen_sample/outputs/plots/sampling_benchmark.png
 
 VISUALIZE A RUN's distribution:
 
-  python 03_compare_runs.py --run run_01
+  python 02_plot_sampleDist.py --run run_01
 
   Output: gen_sample/outputs/run_01/plots/run_comparison.png
 
@@ -225,10 +225,10 @@ Browse the fixed structures of a sample run (arrow keys to navigate):
   python 01_gen_sample.py --sample 20 --copy-cifs
 
   # Then view it
-  python 05_view_sample.py --run 1
+  python 03_view_sample.py --run 1
 
   # Or point to an existing cif/ directory
-  python 05_view_sample.py --run 2 --cif-dir cif
+  python 03_view_sample.py --run 2 --cif-dir cif
 
   Structures are displayed in ΔG order (tightest binder first).
   The status line shows: pdb_id, dG, peptide chain:length, receptor chain:length.

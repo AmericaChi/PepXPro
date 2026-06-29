@@ -46,6 +46,7 @@ OUT_COLS = [
     "receptor_description", "receptor_func_class",
     "n_contacts", "n_hbonds",
     "mse_converted", "caps_stripped", "cap_min_dist_A",
+    "peptide_topology",
     "reject_reason",
 ]
 
@@ -54,9 +55,13 @@ _HEAVY_COLS = ("peptide_seq", "receptor_seq")
 
 # Columns that can be patched cheaply without re-running PDBFixer or DSSP.
 # receptor_description/func_class: from raw pdb_cache CIF.
-# n_contacts/n_hbonds: from the already-built fixed_cif/.
+# n_contacts/n_hbonds/peptide_topology: from the already-built fixed_cif/.
 _PATCH_COLS = frozenset(("receptor_description", "receptor_func_class",
-                          "n_contacts", "n_hbonds"))
+                          "n_contacts", "n_hbonds", "peptide_topology"))
+
+# Columns that are legitimately empty for many accepted entries (not a cache miss).
+# mse_converted = "" means no MSE was found; caps_stripped = "" means no caps stripped.
+_NULLABLE_COLS = frozenset(("mse_converted", "caps_stripped", "cap_min_dist_A"))
 
 
 def _load_cache(tsv_path):
@@ -82,10 +87,12 @@ def _cache_status(cached):
     # Accepted entry: verify heavy sentinel columns are non-empty
     if not all(cached.get(c, "") not in ("", "NA") for c in _HEAVY_COLS):
         return "miss"
-    # Find which required columns are absent or empty (reject_reason is always
-    # empty for accepted entries — skip it)
+    # Find which required columns are absent or empty — skip reject_reason
+    # (always empty for accepted entries) and _NULLABLE_COLS (legitimately empty).
     missing = [c for c in OUT_COLS
-               if c != "reject_reason" and not cached.get(c, "")]
+               if c != "reject_reason"
+               and c not in _NULLABLE_COLS
+               and not cached.get(c, "")]
     if not missing:
         return "full"
     if all(c in _PATCH_COLS for c in missing):
@@ -130,6 +137,20 @@ def _patch_row(pdb_id, cached):
         else:
             row.setdefault("n_contacts", "")
             row.setdefault("n_hbonds",   "")
+
+    if not row.get("peptide_topology"):
+        from modules.filter import _detect_peptide_topology
+        from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+        fixed_cif = FIXED_DIR / f"{pdb_id}.cif"
+        if fixed_cif.exists():
+            pep_chain = row.get("peptide_chain", "")
+            try:
+                d = MMCIF2Dict(str(fixed_cif))
+                row["peptide_topology"] = _detect_peptide_topology(d, pep_chain)
+            except Exception:
+                row["peptide_topology"] = "linear"
+        else:
+            row["peptide_topology"] = "linear"
 
     return row
 
@@ -288,6 +309,7 @@ def main():
                     "mse_converted":        result.get("mse_converted", ""),
                     "caps_stripped":        result.get("caps_stripped", ""),
                     "cap_min_dist_A":       result.get("cap_min_dist_A", ""),
+                    "peptide_topology":     result.get("peptide_topology", "linear"),
                     "reject_reason":        "",
                 }
 

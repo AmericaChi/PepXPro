@@ -68,6 +68,21 @@ def extract_full_sequence(cif_path, chain_id):
     return None
 
 
+def extract_exptl_method(cif_path):
+    """Return experimental method string from CIF, e.g. 'SOLUTION NMR', 'X-RAY DIFFRACTION'.
+    Returns 'NA' if not found."""
+    from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+    try:
+        d = MMCIF2Dict(str(cif_path))
+        val = d.get("_exptl.method")
+        if val:
+            v = val[0] if isinstance(val, list) else val
+            return str(v).strip()
+    except Exception:
+        pass
+    return "NA"
+
+
 def extract_resolution(cif_path):
     """Read crystallographic resolution from CIF.
     Returns '1.80', or 'NA' for NMR/missing data."""

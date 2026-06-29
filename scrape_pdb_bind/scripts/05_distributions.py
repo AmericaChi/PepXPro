@@ -150,7 +150,9 @@ def main():
     if args.output_dir:
         plots_dir = Path(args.output_dir)
     else:
-        plots_dir = summary_tsv.parent / "plots" if args.summary_tsv else PLOTS_DIR
+        stem = summary_tsv.stem  # e.g. "summary", "summary_merged", "summary_PPIKB"
+        dir_name = "plots" + stem[len("summary"):]  # -> "plots", "plots_merged", "plots_PPIKB"
+        plots_dir = summary_tsv.parent / dir_name
 
     out_path   = plots_dir / "summary_distributions.png"
     stats_path = plots_dir / "summary_statistics.tsv"

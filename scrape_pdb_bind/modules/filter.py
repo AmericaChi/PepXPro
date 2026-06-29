@@ -214,6 +214,31 @@ def compute_interface_contacts(fixed_cif_path, pep_chain, rec_chains):
 
 
 # ---------------------------------------------------------------------------
+# Peptide topology detection
+# ---------------------------------------------------------------------------
+
+def _detect_peptide_topology(mmcif_dict, pep_chain_id):
+    """Return 'cyclic_disulfide' if the peptide chain has an intra-chain SS bond, else 'linear'.
+
+    Reads _struct_conn records written by OpenMM into the fixed CIF.
+    """
+    conn_types = mmcif_dict.get("_struct_conn.conn_type_id", [])
+    c1_list    = mmcif_dict.get("_struct_conn.ptnr1_label_asym_id", [])
+    c2_list    = mmcif_dict.get("_struct_conn.ptnr2_label_asym_id", [])
+    # Build auth→label mapping in case chain IDs differ (they are equal in OpenMM CIFs)
+    auth_ids   = mmcif_dict.get("_atom_site.auth_asym_id", [])
+    label_ids  = mmcif_dict.get("_atom_site.label_asym_id", [])
+    auth_to_label = {}
+    for a, l in zip(auth_ids, label_ids):
+        auth_to_label[a] = l
+    pep_label = auth_to_label.get(pep_chain_id, pep_chain_id)
+    for ctype, c1, c2 in zip(conn_types, c1_list, c2_list):
+        if ctype == "disulf" and c1 == pep_label and c2 == pep_label:
+            return "cyclic_disulfide"
+    return "linear"
+
+
+# ---------------------------------------------------------------------------
 # Fixed CIF builder
 # ---------------------------------------------------------------------------
 
@@ -682,6 +707,9 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir, convert_mse=True, strip_
     # --- Interface contacts and H-bond proxies (from fixed CIF) ---
     n_contacts, n_hbonds = compute_interface_contacts(fixed_cif_path, pep_id, rec_ids)
 
+    # --- Peptide topology (linear vs cyclic_disulfide) ---
+    peptide_topology = _detect_peptide_topology(_d, pep_id_check)
+
     all_pep_names = peptide_chain["residue_names"]
     all_rec_names = [r for c in receptor_chains for r in c["residue_names"]]
     had_mse = "MSE" in all_pep_names or "MSE" in all_rec_names
@@ -709,6 +737,7 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir, convert_mse=True, strip_
         mse_converted="Y" if (convert_mse and had_mse) else "",
         caps_stripped=",".join(caps_to_strip) if caps_to_strip else "",
         cap_min_dist_A=f"{cap_min_dist:.1f}" if cap_min_dist is not None else "",
+        peptide_topology=peptide_topology,
         reject_reason="",
     )
 
