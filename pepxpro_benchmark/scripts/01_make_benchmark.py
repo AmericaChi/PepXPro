@@ -50,7 +50,7 @@ DIMS            = ["dg", "ss_class", "func_class"]
 SINGLE_CHAIN    = True
 SEQ_ID_RECEPTOR = "strict"   # 40% CD-HIT
 SEQ_ID_PEPTIDE  = "strict"   # 70% Biopython pairwise
-TM_SCORE        = 0.5
+TM_SCORE        = 0.8
 
 FULL_METADATA   = True
 EXPORT_FASTA    = True

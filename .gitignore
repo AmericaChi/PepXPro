@@ -27,6 +27,9 @@ sample.tsv
 #Claude
 .claude/
 
+# Reports (local only)
+reports/
+
 # Outputs
 outputs/
 **/outputs/
