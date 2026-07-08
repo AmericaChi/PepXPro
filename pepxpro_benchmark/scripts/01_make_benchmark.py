@@ -1,10 +1,10 @@
 """
 01_make_benchmark.py — Generate a versioned pepxpro_benchmark release.
 
-Uses gen_sample modules directly.  No run_XX is created in gen_sample/outputs/.
+Uses genSample modules directly.  No run_XX is created in genSample/outputs/.
 
 Intended workflow:
-  1. Explore and tune parameters with gen_sample/01_gen_sample.py
+  1. Explore and tune parameters with genSample/01_genSample.py
      (--dry-run, --sample, different --dims, etc.)
   2. Once parameters are final, run this script for a reproducible release.
 
@@ -24,11 +24,11 @@ from pathlib import Path
 _here       = Path(__file__).resolve().parent
 _bench_root = _here.parent
 _repo_root  = _bench_root.parent
-_scrape_out = _repo_root / "scrape_pdb_bind" / "outputs"
-_fixed_cif  = _repo_root / "scrape_pdb_bind" / "fixed_cif"
+_scrape_out = _repo_root / "scrape" / "outputs"
+_fixed_cif  = _repo_root / "scrape" / "fixed_cif"
 _filtered   = _scrape_out / "filtered_systems.tsv"
 
-sys.path.insert(0, str(_repo_root / "gen_sample"))
+sys.path.insert(0, str(_repo_root / "genSample"))
 from modules.utils import load_tsv, enrich_rows, save_tsv
 from modules.filters import apply_quality_filters
 from modules.sequence_redundancy import apply_redundancy_filters
@@ -61,7 +61,7 @@ POOL_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
 
 
 def _filter_args():
-    """Build a Namespace with all fields expected by gen_sample filter modules."""
+    """Build a Namespace with all fields expected by genSample filter modules."""
     return argparse.Namespace(
         single_chain=SINGLE_CHAIN,
         min_receptor=None,   max_receptor=None,
@@ -195,8 +195,8 @@ def _convert_cifs_to_pdb(cif_dir, pdb_dir):
 def generate_plots(version_dir):
     plots_dst       = version_dir / "plots"
     plots_dst.mkdir(parents=True, exist_ok=True)
-    _scrape_scripts = _repo_root / "scrape_pdb_bind" / "scripts"
-    _gen_scripts    = _repo_root / "gen_sample" / "scripts"
+    _scrape_scripts = _repo_root / "scrape" / "scripts"
+    _gen_scripts    = _repo_root / "genSample" / "scripts"
 
     print("  Generating summary_distributions.png ...")
     subprocess.run(

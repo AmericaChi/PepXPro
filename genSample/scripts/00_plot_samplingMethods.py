@@ -5,7 +5,7 @@ Runs all three sampling methods on the same filtered pool and produces a single
 figure showing selected entries in a 2D scatter (dims[0] x dims[1]).
 KDE always samples on dims[0] only; the label reflects this (kde-1D).
 
-Output: gen_sample/outputs/plots/sampling_benchmark.png
+Output: genSample/outputs/plots/sampling_benchmark.png
 
 Usage:
   python 00_plot_samplingMethods.py
@@ -26,7 +26,7 @@ from modules.utils import load_tsv, enrich_rows
 from modules.filters import filter_single_chain
 from modules.sampling import SAMPLING_METHODS, method_label, DIM_KEYS, AVAILABLE_DIMS
 
-_SCRAPE_DIR = _root.parent / "scrape_pdb_bind"
+_SCRAPE_DIR = _root.parent / "scrape"
 SUMMARY_TSV = _SCRAPE_DIR / "outputs" / "summary.tsv"
 PLOTS_DIR   = _root / "outputs" / "plots"
 LOGS_DIR    = _root / "logs"

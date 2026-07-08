@@ -83,7 +83,7 @@ CAT_DIMS = {
 def _load(path, label):
     if not path.exists():
         print(f"  Error: {path} not found.")
-        print(f"  Re-run 01_gen_sample.py without --no-save-pools to generate {label}.")
+        print(f"  Re-run 01_genSample.py without --no-save-pools to generate {label}.")
         sys.exit(1)
     rows = enrich_rows(load_tsv(path))
     print(f"  Loaded {len(rows):>4} entries from {path.name}")
@@ -172,7 +172,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--run", metavar="RUN_DIR",
-                        help="Run directory name inside gen_sample/outputs/, e.g. run_01")
+                        help="Run directory name inside genSample/outputs/, e.g. run_01")
     parser.add_argument("--run-dir", metavar="PATH",
                         help="Full path to any directory containing pool_quality.tsv, "
                              "pool_redundancy.tsv, and sample.tsv.")

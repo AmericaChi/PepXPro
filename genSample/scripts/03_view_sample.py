@@ -1,5 +1,5 @@
 """
-Step 5: Browse the fixed CIFs of a gen_sample run in PyMOL.
+Step 5: Browse the fixed CIFs of a genSample run in PyMOL.
 
 Chains are coloured with util.cbc.  Navigate with left/right arrow keys.
 Structures are shown in ΔG order (tightest binder first).
@@ -9,7 +9,7 @@ Usage:
   python 03_view_sample.py --run 3      # run_03/sample.tsv
   python 03_view_sample.py --run 3 --cif-dir /path/to/cif
 
-  CIF lookup order: run_XX/cif/  →  run_XX/pdb/  →  scrape_pdb_bind/fixed_cif/
+  CIF lookup order: run_XX/cif/  →  run_XX/pdb/  →  scrape/fixed_cif/
   Override all with --cif-dir.
 """
 
@@ -21,8 +21,8 @@ import tempfile
 from pathlib import Path
 
 _here   = Path(__file__).resolve().parent
-_root   = _here.parent                          # gen_sample/
-_scrape = _root.parent / "scrape_pdb_bind"
+_root   = _here.parent                          # genSample/
+_scrape = _root.parent / "scrape"
 sys.path.insert(0, str(_root))
 
 from modules.utils import load_tsv
@@ -42,7 +42,7 @@ def resolve_run_dir(run_n):
     if run_n is None:
         d = latest_run_dir()
         if d is None:
-            print("No run directories found in gen_sample/outputs/.")
+            print("No run directories found in genSample/outputs/.")
             sys.exit(1)
         return d
     return OUTPUTS_DIR / f"run_{run_n:02d}"
@@ -125,7 +125,7 @@ def write_viewer_script(cif_files, labels):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Browse gen_sample run structures in PyMOL.",
+        description="Browse genSample run structures in PyMOL.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

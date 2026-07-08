@@ -5,8 +5,8 @@ import numpy as np
 from pathlib import Path
 from Bio.PDB import MMCIFParser
 
-# Default location of the pre-computed matrix (produced by scrape_pdb_bind/scripts/06_tm_matrix.py)
-_SCRAPE_ROOT   = Path(__file__).resolve().parents[2] / "scrape_pdb_bind"
+# Default location of the pre-computed matrix (produced by scrape/scripts/06_tm_matrix.py)
+_SCRAPE_ROOT   = Path(__file__).resolve().parents[2] / "scrape"
 _MATRIX_NPZ    = _SCRAPE_ROOT / "outputs" / "tm_score_matrix.npz"
 _MATRIX_IDS    = _SCRAPE_ROOT / "outputs" / "tm_score_ids.txt"
 
@@ -143,7 +143,7 @@ def filter_tm_score_receptor(rows, threshold, fixed_cif_dir):
 def filter_tm_score_receptor_matrix(rows, threshold):
     """Greedy TM-score clustering using a pre-computed matrix (fast path).
 
-    Loads scrape_pdb_bind/outputs/tm_score_matrix.npz produced by 06_tm_matrix.py.
+    Loads scrape/outputs/tm_score_matrix.npz produced by 06_tm_matrix.py.
     Returns the filtered rows, or None if the matrix cannot be used for this pool
     (missing entries → caller should fall back to on-the-fly computation).
     """

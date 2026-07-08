@@ -6,7 +6,7 @@ Usage:
   python pepxpro.py scrape --steps filter summary
   python pepxpro.py scrape --force
   python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx
-  python pepxpro.py scrape -v --index scrape_pdb_bind/inputs/INDEX_general_PL.2020R1.lst
+  python pepxpro.py scrape -v --index scrape/inputs/INDEX_general_PL.2020R1.lst
   python pepxpro.py config --print
 """
 
@@ -19,12 +19,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 SCRAPE_SCRIPTS = {
-    "download":      ROOT / "scrape_pdb_bind/scripts/01_download.py",
-    "filter":        ROOT / "scrape_pdb_bind/scripts/02_filter.py",
-    "summary":       ROOT / "scrape_pdb_bind/scripts/03_summary.py",
-    "external":      ROOT / "scrape_pdb_bind/scripts/04_external.py",
-    "distributions": ROOT / "scrape_pdb_bind/scripts/05_distributions.py",
-    "tm_matrix":     ROOT / "scrape_pdb_bind/scripts/06_tm_matrix.py",
+    "download":      ROOT / "scrape/scripts/01_download.py",
+    "filter":        ROOT / "scrape/scripts/02_filter.py",
+    "summary":       ROOT / "scrape/scripts/03_summary.py",
+    "external":      ROOT / "scrape/scripts/04_external.py",
+    "distributions": ROOT / "scrape/scripts/05_distributions.py",
+    "tm_matrix":     ROOT / "scrape/scripts/06_tm_matrix.py",
 }
 SCRAPE_ORDER         = ["download", "filter", "summary", "distributions"]
 SCRAPE_ORDER_EXT     = ["download", "filter", "summary", "external", "distributions"]
@@ -59,7 +59,7 @@ def run_scrape(args):
             if getattr(args, "name", None):
                 cmd.extend(["--name", args.name])
         if step == "distributions":
-            summary_dir = ROOT / "scrape_pdb_bind/outputs"
+            summary_dir = ROOT / "scrape/outputs"
             if getattr(args, "summary_tsv", None):
                 cmd.extend(["--summary-tsv", str(args.summary_tsv)])
             elif "external" in steps:
@@ -101,9 +101,9 @@ def run_config(_args):
         val = re.sub(r'\s*#.*$', '', val)  # strip inline comment
         return val.strip()
 
-    FILTER_PY = ROOT / "scrape_pdb_bind/modules/filter.py"
-    DL_PY     = ROOT / "scrape_pdb_bind/modules/download.py"
-    SR_PY     = ROOT / "gen_sample/modules/sequence_redundancy.py"
+    FILTER_PY = ROOT / "scrape/modules/filter.py"
+    DL_PY     = ROOT / "scrape/modules/download.py"
+    SR_PY     = ROOT / "genSample/modules/sequence_redundancy.py"
     BENCH_PY  = ROOT / "pepxpro_benchmark/scripts/01_make_benchmark.py"
 
     bench_script = ROOT / "pepxpro_benchmark/scripts/01_make_benchmark.py"
@@ -145,8 +145,8 @@ def run_config(_args):
     row("hbond_cutoff_A",         _const(FILTER_PY, "HBOND_CUTOFF_A"),         "n_hbonds N/O/S proximity proxy","hardcoded")
     row("cap_interface_cutoff_A", _const(FILTER_PY, "CAP_INTERFACE_CUTOFF_A"), "reject cap if closer than this to receptor", "hardcoded")
 
-    # ── gen_sample / quality ──────────────────────────────────────────────────
-    section("gen_sample / quality filters  (01_gen_sample.py)")
+    # ── genSample / quality ──────────────────────────────────────────────────
+    section("genSample / quality filters  (01_genSample.py)")
     row("single_chain",    "true",  "receptor must have exactly 1 chain (--no-single-chain)", "CLI")
     row("min_peptide",     "",      "--min-peptide N",           "CLI")
     row("max_peptide",     "",      "--max-peptide N",           "CLI")
@@ -160,8 +160,8 @@ def run_config(_args):
     row("max_added",       "",      "max residues added by PDBFixer to peptide", "CLI")
     row("max_receptor_added", "",   "max residues added by PDBFixer to receptor","CLI")
 
-    # ── gen_sample / redundancy ───────────────────────────────────────────────
-    section("gen_sample / redundancy filters  (01_gen_sample.py)")
+    # ── genSample / redundancy ───────────────────────────────────────────────
+    section("genSample / redundancy filters  (01_genSample.py)")
     row("seq_id_receptor",  "strict", "preset → CD-HIT ≥ 40%   (strict/medium/lenient/custom)", "CLI")
     row("seq_id_peptide",   "strict", "preset → pairwise ≥ 70%  (strict/medium/lenient/custom)", "CLI")
     row("tm_score_receptor","",       "TM-score threshold  --tm-score-receptor F  (disabled by default)", "CLI")
@@ -193,7 +193,7 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_scrape = sub.add_parser("scrape", help="Run the scrape_pdb_bind pipeline.")
+    p_scrape = sub.add_parser("scrape", help="Run the scrape pipeline.")
     p_scrape.add_argument("-v", "--verbose", action="store_true",
                           help="Print one brief line per step to stdout.")
     p_scrape.add_argument(
@@ -213,7 +213,7 @@ def main():
     p_scrape.add_argument("--precompute-tm", action="store_true",
                           help="Pre-compute receptor TM-score matrix after filtering "
                                "(06_tm_matrix.py). Saves outputs/tm_score_matrix.npz "
-                               "for fast reuse in gen_sample --tm-score-receptor.")
+                               "for fast reuse in genSample --tm-score-receptor.")
     p_scrape.add_argument("--external-input", metavar="FILE",
                           help="External dataset file (xlsx/tsv/csv). "
                                "Activates the external step (04_external.py) automatically.")

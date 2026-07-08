@@ -3,7 +3,7 @@
 
 Parses an external file (xlsx/tsv/csv), normalizes affinity data,
 deduplicates against PDBbind, downloads CIFs, runs the filter+summary
-pipeline, and produces a merged summary ready for gen_sample.
+pipeline, and produces a merged summary ready for genSample.
 
 Usage:
   python 05_external.py --input inputs/external/PEPBI.xlsx
@@ -14,7 +14,7 @@ Outputs (in outputs/):
   peptide_entries_<name>.tsv   — normalized entries (input for 02_filter.py)
   filtered_systems_<name>.tsv  — structure filter output
   summary_<name>.tsv           — summary for this dataset
-  summary_merged.tsv           — PDBbind + external (ready for gen_sample)
+  summary_merged.tsv           — PDBbind + external (ready for genSample)
 
 Column map is saved to inputs/<name>_colmap.json and reused on re-runs.
 """
@@ -576,7 +576,7 @@ def main():
         for p in ext_tsvs:
             print(f"  {p.name}")
         merge_summaries(std_summary, ext_tsvs, summary_merged)
-        print(f"  Use in gen_sample: python 01_gen_sample.py --summary-tsv {summary_merged}")
+        print(f"  Use in genSample: python 01_genSample.py --summary-tsv {summary_merged}")
         if args.verbose:
             stdout.write(f"[scrape/05-external] done  —  merged\n")
             stdout.flush()
@@ -588,7 +588,7 @@ def main():
 
     input_path = Path(args.input)
     if not input_path.exists():
-        input_path = _root / args.input  # try relative to scrape_pdb_bind/
+        input_path = _root / args.input  # try relative to scrape/
     if not input_path.exists():
         sys.stderr.write(f"Error: {Path(args.input)} not found.\n")
         sys.exit(1)

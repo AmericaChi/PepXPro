@@ -35,18 +35,18 @@ OUT_TSV       = OUTPUTS_DIR / "summary.tsv"
 LOG_FILE      = LOGS_DIR / "03_summary.log"
 
 OUT_COLS = [
+    # Core metadata
     "pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
     "resolution", "year", "temperature",
-    "peptide_added", "peptide_seq",
+    # Raw structural metadata
+    "peptide_added", "peptide_seq", "peptide_topology",
+    "receptor_added", "receptor_seq", "receptor_func_class",
+    # ── Computed / predicted ──────────────────────────────────────────────────
     "peptide_ss", "peptide_ss_dssp",
-    "peptide_pct_helix", "peptide_pct_beta", "peptide_pct_coil",
-    "peptide_ss_class",
-    "peptide_topology",
-    "receptor_added", "receptor_seq",
+    "peptide_pct_helix", "peptide_pct_beta", "peptide_pct_coil", "peptide_ss_class",
     "receptor_ss", "receptor_ss_dssp",
     "receptor_pct_helix", "receptor_pct_beta", "receptor_pct_coil",
-    "receptor_func_class",
-    "n_contacts", "n_hbonds",
+    "n_contacts", "n_hbonds", "pep_sasa_burial",
 ]
 
 
@@ -148,6 +148,7 @@ def main():
             "receptor_func_class": row.get("receptor_func_class", "NA"),
             "n_contacts":          row.get("n_contacts", ""),
             "n_hbonds":            row.get("n_hbonds", ""),
+            "pep_sasa_burial":     row.get("pep_sasa_burial", ""),
             **{c: entry.get(c, "") for c in extra_entry_cols},
         }))
 

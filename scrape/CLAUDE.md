@@ -1,4 +1,4 @@
-# scrape_pdb_bind
+# scrape
 
 Modular pipeline for downloading, filtering, and preparing peptide–protein systems from PDBbind.
 
@@ -11,7 +11,7 @@ conda activate pepxpro
 ## Structure
 
 ```
-scrape_pdb_bind/
+scrape/
 ├── scripts/
 │   ├── 01_download.py       Parse INDEX, compute ΔG, download assembly CIFs
 │   ├── 02_filter.py         Filter, fix, extract metadata
@@ -47,7 +47,7 @@ python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx
 
 Or step by step:
 ```bash
-cd scrape_pdb_bind/scripts
+cd scrape/scripts
 python 01_download.py
 python 02_filter.py
 python 03_summary.py

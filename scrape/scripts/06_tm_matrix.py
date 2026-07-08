@@ -2,7 +2,7 @@
 06_tm_matrix.py — Pre-compute receptor TM-score matrix for all accepted entries.
 
 Computes max(TM(i->j), TM(j->i)) for every receptor pair and saves a compressed
-NumPy matrix that gen_sample loads instead of computing TM-scores on-the-fly.
+NumPy matrix that genSample loads instead of computing TM-scores on-the-fly.
 
 Reads all filtered_systems*.tsv files found in outputs/ so external datasets
 (PPIKB, PEPBI, ...) are included automatically.

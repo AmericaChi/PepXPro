@@ -55,7 +55,7 @@ def _check_seq_column(rows, col, method_name):
     if col not in rows[0] or not rows[0][col]:
         raise ValueError(
             f"{method_name} requires '{col}' column in summary.tsv. "
-            "Re-run scrape_pdb_bind steps 2-3 to generate it."
+            "Re-run scrape steps 2-3 to generate it."
         )
 
 

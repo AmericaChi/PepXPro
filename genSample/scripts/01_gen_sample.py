@@ -1,24 +1,24 @@
 """
-01_gen_sample.py — Generate a peptide-protein benchmark sample from PDBbind outputs.
+01_genSample.py — Generate a peptide-protein benchmark sample from PDBbind outputs.
 
-Reads summary.tsv (and optionally filtered_systems.tsv) produced by scrape_pdb_bind,
-applies filters, samples entries, and writes outputs to gen_sample/outputs/run_XX/.
-A log is written to gen_sample/logs/run_XX.log for every non-dry-run execution.
+Reads summary.tsv (and optionally filtered_systems.tsv) produced by scrape,
+applies filters, samples entries, and writes outputs to genSample/outputs/run_XX/.
+A log is written to genSample/logs/run_XX.log for every non-dry-run execution.
 
 Usage examples:
-  python 01_gen_sample.py --sample 20
-  python 01_gen_sample.py --sample 20 --single-chain --max-peptide 15
-  python 01_gen_sample.py --sample 20 --sampling kennard-stone --seed 42
-  python 01_gen_sample.py --no-sample
-  python 01_gen_sample.py --dry-run
-  python 01_gen_sample.py --pick 1abc --protonate --ph 7.4
+  python 01_genSample.py --sample 20
+  python 01_genSample.py --sample 20 --single-chain --max-peptide 15
+  python 01_genSample.py --sample 20 --sampling kennard-stone --seed 42
+  python 01_genSample.py --no-sample
+  python 01_genSample.py --dry-run
+  python 01_genSample.py --pick 1abc --protonate --ph 7.4
 """
 
 import argparse
 import sys
 from pathlib import Path
 
-# Allow running from scripts/ directly or from the gen_sample root.
+# Allow running from scripts/ directly or from the genSample root.
 _here = Path(__file__).resolve().parent
 _root = _here.parent
 sys.path.insert(0, str(_root))
@@ -35,10 +35,10 @@ POOL_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
              "resolution", "peptide_ss_class", "receptor_func_class"]
 
 # ---------------------------------------------------------------------------
-# Paths (relative to scrape_pdb_bind, which lives next to gen_sample)
+# Paths (relative to scrape, which lives next to genSample)
 # ---------------------------------------------------------------------------
 
-_SCRAPE_DIR    = _root.parent / "scrape_pdb_bind"
+_SCRAPE_DIR    = _root.parent / "scrape"
 SUMMARY_TSV    = _SCRAPE_DIR / "outputs" / "summary.tsv"
 FILTERED_TSV   = _SCRAPE_DIR / "outputs" / "filtered_systems.tsv"
 FIXED_CIF_DIR  = _SCRAPE_DIR / "fixed_cif"
@@ -233,7 +233,7 @@ def build_parser():
     inp_grp = p.add_argument_group("input")
     inp_grp.add_argument("--summary-tsv", metavar="FILE", default=str(SUMMARY_TSV),
                          help="Path to summary TSV. Use summary_merged.tsv to include "
-                              "external datasets (default: scrape_pdb_bind/outputs/summary.tsv).")
+                              "external datasets (default: scrape/outputs/summary.tsv).")
 
     # ---- Output ----
     out_grp = p.add_argument_group("output")
@@ -274,7 +274,7 @@ def main():
 
     summary_tsv = Path(args.summary_tsv)
     if not summary_tsv.exists():
-        print(f"  Error: {summary_tsv} not found — run scrape_pdb_bind steps 1-3 first.")
+        print(f"  Error: {summary_tsv} not found — run scrape steps 1-3 first.")
         sys.exit(1)
 
     # Load and enrich

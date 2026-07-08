@@ -20,7 +20,7 @@ run_config.json             Full provenance
 
 PIPELINE
 --------
-  Input:           /Users/amerikachi/Projects/Claude_projects/PREPPRO/PepPro/scrape_pdb_bind/outputs/summary_merged.tsv
+  Input:           /Users/amerikachi/Projects/Claude_projects/PREPPRO/PepPro/scrape/outputs/summary_merged.tsv
   Quality pool:    582 entries  (--single-chain)
   Redundancy pool: 89 entries  (seq receptor 40%, peptide 70%, TM-score 0.5)
   Final sample:    87 entries  (kennard-stone-3D)
@@ -52,8 +52,8 @@ PARAMETERS
     "tm_score_receptor": 0.5
   },
   "sources": {
-    "summary_tsv": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepPro/scrape_pdb_bind/outputs/summary_merged.tsv",
-    "fixed_cif_dir": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepPro/scrape_pdb_bind/fixed_cif"
+    "summary_tsv": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepPro/scrape/outputs/summary_merged.tsv",
+    "fixed_cif_dir": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepPro/scrape/fixed_cif"
   },
   "generated": "2026-06-08"
 }

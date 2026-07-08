@@ -37,16 +37,21 @@ OUT_TSV      = OUTPUTS_DIR / "filtered_systems.tsv"
 LOG_FILE     = LOGS_DIR / "02_filter.log"
 
 OUT_COLS = [
+    # Identity & raw metadata
     "pdb_id", "n_mer", "accepted", "assembly_num",
+    # Peptide raw
     "peptide_chain", "peptide_length", "peptide_added", "peptide_seq",
-    "peptide_ss", "peptide_ss_dssp",
+    # Receptor raw
     "receptor_chains", "receptor_length", "receptor_added", "receptor_seq",
+    # Crystallographic & functional metadata
+    "resolution", "receptor_description", "receptor_func_class",
+    # Processing flags
+    "mse_converted", "caps_stripped", "cap_min_dist_A", "peptide_topology",
+    # ── Computed / predicted ──────────────────────────────────────────────────
+    "peptide_ss", "peptide_ss_dssp",
     "receptor_ss", "receptor_ss_dssp",
-    "resolution",
-    "receptor_description", "receptor_func_class",
-    "n_contacts", "n_hbonds",
-    "mse_converted", "caps_stripped", "cap_min_dist_A",
-    "peptide_topology",
+    "n_contacts", "n_hbonds", "pep_sasa_burial",
+    # Status
     "reject_reason",
 ]
 
@@ -55,9 +60,10 @@ _HEAVY_COLS = ("peptide_seq", "receptor_seq")
 
 # Columns that can be patched cheaply without re-running PDBFixer or DSSP.
 # receptor_description/func_class: from raw pdb_cache CIF.
-# n_contacts/n_hbonds/peptide_topology: from the already-built fixed_cif/.
+# n_contacts/n_hbonds/peptide_topology/pep_sasa_burial: from already-built fixed_cif/.
 _PATCH_COLS = frozenset(("receptor_description", "receptor_func_class",
-                          "n_contacts", "n_hbonds", "peptide_topology"))
+                          "n_contacts", "n_hbonds", "peptide_topology",
+                          "pep_sasa_burial"))
 
 # Columns that are legitimately empty for many accepted entries (not a cache miss).
 # mse_converted = "" means no MSE was found; caps_stripped = "" means no caps stripped.
@@ -151,6 +157,16 @@ def _patch_row(pdb_id, cached):
                 row["peptide_topology"] = "linear"
         else:
             row["peptide_topology"] = "linear"
+
+    if not row.get("pep_sasa_burial"):
+        from modules.filter import compute_sasa_burial
+        fixed_cif = FIXED_DIR / f"{pdb_id}.cif"
+        if fixed_cif.exists():
+            pep_chain = row.get("peptide_chain", "")
+            burial = compute_sasa_burial(fixed_cif, pep_chain)
+            row["pep_sasa_burial"] = str(burial) if burial is not None else ""
+        else:
+            row.setdefault("pep_sasa_burial", "")
 
     return row
 
@@ -306,6 +322,8 @@ def main():
                     "receptor_func_class":  result.get("receptor_func_class", "NA"),
                     "n_contacts":           str(result.get("n_contacts", "")),
                     "n_hbonds":             str(result.get("n_hbonds", "")),
+                    "pep_sasa_burial":      str(result["pep_sasa_burial"])
+                                            if result.get("pep_sasa_burial") is not None else "",
                     "mse_converted":        result.get("mse_converted", ""),
                     "caps_stripped":        result.get("caps_stripped", ""),
                     "cap_min_dist_A":       result.get("cap_min_dist_A", ""),

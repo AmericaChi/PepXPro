@@ -15,8 +15,8 @@
     "tm_score_receptor": 0.8
   },
   "sources": {
-    "summary_tsv": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape_pdb_bind/outputs/summary_merged.tsv",
-    "fixed_cif_dir": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape_pdb_bind/fixed_cif"
+    "summary_tsv": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape/outputs/summary_merged.tsv",
+    "fixed_cif_dir": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape/fixed_cif"
   },
   "generated": "2026-06-29",
   "pca_features": [

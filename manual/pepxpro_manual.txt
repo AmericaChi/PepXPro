@@ -4,8 +4,8 @@ Modular framework for generating peptide-protein benchmark datasets from PDBbind
 
 REPOSITORY LAYOUT
 -----------------
-scrape_pdb_bind/   Download, filter, and prepare CIFs from PDBbind + external datasets.
-gen_sample/        Filter, deduplicate, sample, and export datasets.
+scrape/   Download, filter, and prepare CIFs from PDBbind + external datasets.
+genSample/        Filter, deduplicate, sample, and export datasets.
 pepxpro_benchmark/ Curated versioned benchmark releases (v1/, v2/, …).
 manual/            This file and tutorial.txt.
 
@@ -15,9 +15,9 @@ Environment:  conda activate pepxpro
 
 
 ===========================================================================
-PIPELINE: scrape_pdb_bind/
+PIPELINE: scrape/
 ===========================================================================
-Run steps sequentially from scrape_pdb_bind/scripts/:
+Run steps sequentially from scrape/scripts/:
 
   python 01_download.py
   python 02_filter.py
@@ -148,18 +148,18 @@ NOTES
 
 
 ===========================================================================
-PIPELINE: gen_sample/
+PIPELINE: genSample/
 ===========================================================================
-Run from gen_sample/scripts/. Reads from scrape_pdb_bind/outputs/.
-Writes to gen_sample/outputs/run_XX/.
+Run from genSample/scripts/. Reads from scrape/outputs/.
+Writes to genSample/outputs/run_XX/.
 
-  python 01_gen_sample.py --sample 20
-  python 01_gen_sample.py --dry-run
+  python 01_genSample.py --sample 20
+  python 01_genSample.py --dry-run
   python 00_plot_samplingMethods.py
   python 02_plot_sampleDist.py --run run_01
   python 03_view_sample.py --run 1
 
-OUTPUT (gen_sample/outputs/run_XX/)
+OUTPUT (genSample/outputs/run_XX/)
 ------------------------------------
 sample.tsv                 Selected entries.
 run_config.json            All parameters used (fully reproducible).
@@ -179,7 +179,7 @@ MODES  (one required)
 
 INPUT
 -----
---summary-tsv FILE   Path to summary TSV. Default: scrape_pdb_bind/outputs/summary.tsv.
+--summary-tsv FILE   Path to summary TSV. Default: scrape/outputs/summary.tsv.
                      Use summary_merged.tsv to include external datasets.
 
 SAMPLING  (only with --sample)
@@ -229,22 +229,22 @@ EXPORT  (all optional; combinable)
 
 USAGE EXAMPLES
 --------------
-python 01_gen_sample.py --sample 20
-python 01_gen_sample.py --sample 20 --sampling kennard-stone --seed 42
-python 01_gen_sample.py --sample 20 --sampling kde
-python 01_gen_sample.py --sample 20 --sampling cluster --dims dg pep_len rec_len
-python 01_gen_sample.py --sample 20 --dims func_class dg
-python 01_gen_sample.py --sample 20 --min-year 2010 --max-resolution 2.5
-python 01_gen_sample.py --sample 20 --seq-id-receptor medium --seq-id-peptide strict
-python 01_gen_sample.py --sample 20 --tm-score-receptor 0.5 --max-peptide 4
-python 01_gen_sample.py --sample 20 --link-cifs
-python 01_gen_sample.py --sample 20 --copy-cifs --format pdb
-python 01_gen_sample.py --sample 20 --protonate --ph 7.4 --format pdb
-python 01_gen_sample.py --sample 20 --full-metadata --summary-tsv ../../scrape_pdb_bind/outputs/summary_merged.tsv
-python 01_gen_sample.py --no-sample --export-fasta
-python 01_gen_sample.py --dry-run --max-peptide 15 --binding-type kd
-python 01_gen_sample.py --pick 1abc
-python 01_gen_sample.py --pick 1abc --protonate --format pdb
+python 01_genSample.py --sample 20
+python 01_genSample.py --sample 20 --sampling kennard-stone --seed 42
+python 01_genSample.py --sample 20 --sampling kde
+python 01_genSample.py --sample 20 --sampling cluster --dims dg pep_len rec_len
+python 01_genSample.py --sample 20 --dims func_class dg
+python 01_genSample.py --sample 20 --min-year 2010 --max-resolution 2.5
+python 01_genSample.py --sample 20 --seq-id-receptor medium --seq-id-peptide strict
+python 01_genSample.py --sample 20 --tm-score-receptor 0.5 --max-peptide 4
+python 01_genSample.py --sample 20 --link-cifs
+python 01_genSample.py --sample 20 --copy-cifs --format pdb
+python 01_genSample.py --sample 20 --protonate --ph 7.4 --format pdb
+python 01_genSample.py --sample 20 --full-metadata --summary-tsv ../../scrape/outputs/summary_merged.tsv
+python 01_genSample.py --no-sample --export-fasta
+python 01_genSample.py --dry-run --max-peptide 15 --binding-type kd
+python 01_genSample.py --pick 1abc
+python 01_genSample.py --pick 1abc --protonate --format pdb
 
 
 ===========================================================================
@@ -255,7 +255,7 @@ Output: run_XX/plots/run_comparison[_dimx_dimy].png
 
 FLAGS
 -----
---run RUN_DIR       Run directory name inside gen_sample/outputs/, e.g. run_01.
+--run RUN_DIR       Run directory name inside genSample/outputs/, e.g. run_01.
 --run-dir PATH      Full path to any directory with pool_quality.tsv,
                     pool_redundancy.tsv, and sample.tsv (e.g. pepxpro_benchmark/v1/).
 --dims DIM_X DIM_Y  Override dims from run_config.json (e.g. --dims dg ss_class).
@@ -274,7 +274,7 @@ python 02_plot_sampleDist.py --run-dir ../../pepxpro_benchmark/v1 --dims dg ss_c
 SCRIPT: 00_plot_samplingMethods.py
 ===========================================================================
 Compares all 5 sampling methods on the same filtered pool.
-Output: gen_sample/outputs/plots/sampling_benchmark.png
+Output: genSample/outputs/plots/sampling_benchmark.png
 
 FLAGS
 -----
@@ -312,10 +312,10 @@ PIPELINE: pepxpro_benchmark/
 Curated, versioned benchmark releases. Each version is a self-contained
 directory (v1/, v2/, …) with structures, sequences, metadata, and plots.
 
-No run_XX is created in gen_sample/outputs/.
+No run_XX is created in genSample/outputs/.
 
 Intended workflow:
-  1. Tune parameters using gen_sample/01_gen_sample.py (--dry-run, --sample)
+  1. Tune parameters using genSample/01_genSample.py (--dry-run, --sample)
   2. Once parameters are final, run the benchmark script for a reproducible release.
 
   conda activate pepxpro
@@ -352,20 +352,20 @@ Current v1 configuration:
 
 VISUALIZING A BENCHMARK VERSION
 ---------------------------------
-Use 03_view_sample.py from gen_sample with --cif-dir pointing to the benchmark:
-  cd gen_sample/scripts
+Use 03_view_sample.py from genSample with --cif-dir pointing to the benchmark:
+  cd genSample/scripts
   python 03_view_sample.py --run-dir ../../pepxpro_benchmark/v1 --cif-dir cif
 
 (03_view_sample.py does not yet support --run-dir; use --cif-dir with any run
-that shares the same sample.tsv, or run gen_sample once with --link-cifs
+that shares the same sample.tsv, or run genSample once with --link-cifs
 pointing to the same sample.)
 
 
 ===========================================================================
 NOTES
 ===========================================================================
-- Run scrape_pdb_bind scripts from scrape_pdb_bind/scripts/.
-- Run gen_sample scripts from gen_sample/scripts/.
+- Run scrape scripts from scrape/scripts/.
+- Run genSample scripts from genSample/scripts/.
 - Conda environment: conda activate pepxpro
 - run_config.json records every parameter for full reproducibility.
 - Large output files (CIFs, PDBs, plots) are not tracked by git.

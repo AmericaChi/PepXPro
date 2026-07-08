@@ -9,9 +9,9 @@ All commands assume the pepxpro conda environment is active:
 Contents
 --------
   Part 1 — Full pipeline walkthrough
-    1.1  scrape_pdb_bind: building the dataset
+    1.1  scrape: building the dataset
     1.2  Adding an external dataset (optional)
-    1.3  gen_sample: filtering, sampling, and export
+    1.3  genSample: filtering, sampling, and export
     1.4  Visualizing a sample in PyMOL
 
   Part 2 — Application workflows
@@ -36,13 +36,13 @@ reproducible, diversity-aware benchmark datasets.
 
 Starting point: PDBbind INDEX_general_PL.2020 (requires registration at
 pdbbind.org). Place the index file at:
-  scrape_pdb_bind/inputs/INDEX_general_PL.2020
+  scrape/inputs/INDEX_general_PL.2020
 
 
---- 1.1  scrape_pdb_bind ---
+--- 1.1  scrape ---
 
 Move into the scripts directory for all scrape commands:
-  cd scrape_pdb_bind/scripts
+  cd scrape/scripts
 
 STEP 1 — Download
   Parses the PDBbind index for n-mer entries with Kd or Ki affinity.
@@ -110,7 +110,7 @@ Alternatively, run the whole pipeline from the project root:
 PepXPro can integrate any external affinity dataset (xlsx, tsv, csv) alongside
 PDBbind. The example below uses PEPBI (Dryad, doi:10.5061/dryad.wstqjq2wk).
 
-  cd scrape_pdb_bind/scripts
+  cd scrape/scripts
 
   python 04_external.py \
     --input inputs/external/PEPBI.xlsx \
@@ -130,30 +130,30 @@ PDBbind. The example below uses PEPBI (Dryad, doi:10.5061/dryad.wstqjq2wk).
     python 04_external.py --merge-only
 
   The merged summary (summary_merged.tsv) is a drop-in replacement for summary.tsv
-  in all gen_sample commands.
+  in all genSample commands.
 
 
---- 1.3  gen_sample: filtering, sampling, and export ---
+--- 1.3  genSample: filtering, sampling, and export ---
 
-Move into the gen_sample scripts directory:
-  cd gen_sample/scripts
+Move into the genSample scripts directory:
+  cd genSample/scripts
 
 Each run writes to a new numbered directory (run_01, run_02, ...) so nothing is
 ever overwritten. run_config.json records every parameter for reproducibility.
 
 QUICK START — 20 entries, default stratified sampling:
 
-  python 01_gen_sample.py --sample 20
+  python 01_genSample.py --sample 20
 
-  Output: gen_sample/outputs/run_01/sample.tsv
+  Output: genSample/outputs/run_01/sample.tsv
 
 DRY RUN — inspect the pool before committing:
 
-  python 01_gen_sample.py --dry-run --max-peptide 15 --min-year 2005
+  python 01_genSample.py --dry-run --max-peptide 15 --min-year 2005
 
 QUALITY FILTERS — narrow the pool before sampling:
 
-  python 01_gen_sample.py --sample 30 \
+  python 01_genSample.py --sample 30 \
     --single-chain \
     --max-peptide 15 \
     --min-year 2005 \
@@ -162,7 +162,7 @@ QUALITY FILTERS — narrow the pool before sampling:
 
 REDUNDANCY FILTERS — remove sequence- or structure-redundant entries:
 
-  python 01_gen_sample.py --sample 30 \
+  python 01_genSample.py --sample 30 \
     --seq-id-receptor medium \
     --seq-id-peptide strict \
     --tm-score-receptor 0.5
@@ -170,51 +170,51 @@ REDUNDANCY FILTERS — remove sequence- or structure-redundant entries:
 SAMPLING METHODS — five algorithms available:
 
   # Stratified (default): uniform coverage in a 6x6 quantile grid
-  python 01_gen_sample.py --sample 20 --sampling stratified --dims dg pep_len
+  python 01_genSample.py --sample 20 --sampling stratified --dims dg pep_len
 
   # Kennard-Stone: maximizes minimum pairwise distance in feature space
-  python 01_gen_sample.py --sample 20 --sampling kennard-stone --dims dg pep_len rec_len
+  python 01_genSample.py --sample 20 --sampling kennard-stone --dims dg pep_len rec_len
 
   # KDE: inverse density — over-represents tails of the affinity distribution
-  python 01_gen_sample.py --sample 20 --sampling kde --dims dg
+  python 01_genSample.py --sample 20 --sampling kde --dims dg
 
   # Cluster: one representative per k-means centroid
-  python 01_gen_sample.py --sample 20 --sampling cluster --seed 42
+  python 01_genSample.py --sample 20 --sampling cluster --seed 42
 
   # Isolation-forest: favors outliers in N-D feature space
-  python 01_gen_sample.py --sample 20 --sampling isolation-forest
+  python 01_genSample.py --sample 20 --sampling isolation-forest
 
   # Sample by functional class + affinity
-  python 01_gen_sample.py --sample 20 --sampling kennard-stone --dims func_class dg
+  python 01_genSample.py --sample 20 --sampling kennard-stone --dims func_class dg
 
 EXPORT — get structure files and sequences:
 
   # Symlinks (fast, saves disk space)
-  python 01_gen_sample.py --sample 20 --link-cifs
+  python 01_genSample.py --sample 20 --link-cifs
 
   # Copies in PDB format, protonated at pH 7.4
-  python 01_gen_sample.py --sample 20 --copy-cifs --format pdb --protonate --ph 7.4
+  python 01_genSample.py --sample 20 --copy-cifs --format pdb --protonate --ph 7.4
 
   # FASTA sequences for alignment
-  python 01_gen_sample.py --sample 20 --export-fasta
+  python 01_genSample.py --sample 20 --export-fasta
 
 MERGED DATASET — include external sources:
 
-  python 01_gen_sample.py --sample 30 \
-    --summary-tsv ../../scrape_pdb_bind/outputs/summary_merged.tsv \
+  python 01_genSample.py --sample 30 \
+    --summary-tsv ../../scrape/outputs/summary_merged.tsv \
     --full-metadata
 
 COMPARE SAMPLING METHODS on the same pool:
 
   python 00_plot_samplingMethods.py --n 20 --seed 42 --dims dg pep_len
 
-  Output: gen_sample/outputs/plots/sampling_benchmark.png
+  Output: genSample/outputs/plots/sampling_benchmark.png
 
 VISUALIZE A RUN's distribution:
 
   python 02_plot_sampleDist.py --run run_01
 
-  Output: gen_sample/outputs/run_01/plots/run_comparison.png
+  Output: genSample/outputs/run_01/plots/run_comparison.png
 
 
 --- 1.4  Visualizing a sample in PyMOL ---
@@ -222,7 +222,7 @@ VISUALIZE A RUN's distribution:
 Browse the fixed structures of a sample run (arrow keys to navigate):
 
   # First generate a sample with CIF copies
-  python 01_gen_sample.py --sample 20 --copy-cifs
+  python 01_genSample.py --sample 20 --copy-cifs
 
   # Then view it
   python 03_view_sample.py --run 1
@@ -246,15 +246,15 @@ Goal: obtain a single protonated PDB file for a specific complex, ready to
 The --pick mode bypasses all filters and returns the fixed, optionally
 protonated structure for any PDB ID in the dataset.
 
-  cd gen_sample/scripts
+  cd genSample/scripts
 
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --pick 2las \
     --format pdb \
     --protonate \
     --ph 7.4
 
-  Output: gen_sample/outputs/run_XX/pdb/2las.pdb
+  Output: genSample/outputs/run_XX/pdb/2las.pdb
 
 The PDB file has:
   - Missing residues filled by PDBFixer (modeled loops, capped termini).
@@ -268,7 +268,7 @@ From here:
 
 To prepare a small set of related complexes (same receptor, different peptides):
 
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --no-sample \
     --max-receptor 200 \
     --seq-id-receptor strict \
@@ -288,9 +288,9 @@ Goal: a diverse, non-redundant set of peptide-protein complexes with known
 Requirements: receptor diversity (different folds), peptide length range,
 high-quality crystal structures, known ΔG for ranking validation.
 
-  cd gen_sample/scripts
+  cd genSample/scripts
 
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --sample 50 \
     --single-chain \
     --max-resolution 2.5 \
@@ -325,10 +325,10 @@ Goal: a clean, non-redundant, split-ready dataset of peptide-protein complexes
       with experimental ΔG for training or benchmarking ML binding affinity
       models (sequence-based, structure-based, or graph neural networks).
 
-  cd gen_sample/scripts
+  cd genSample/scripts
 
   # Full non-redundant pool (no N limit) with all metadata columns
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --no-sample \
     --seq-id-receptor medium \
     --seq-id-peptide medium \
@@ -336,7 +336,7 @@ Goal: a clean, non-redundant, split-ready dataset of peptide-protein complexes
     --max-receptor-added 5 \
     --full-metadata \
     --export-fasta \
-    --summary-tsv ../../scrape_pdb_bind/outputs/summary_merged.tsv
+    --summary-tsv ../../scrape/outputs/summary_merged.tsv
 
   Output:
     run_XX/sample.tsv              All entries: sequences, SS, dG, resolution, year, func_class
@@ -370,9 +370,9 @@ Goal: a set of experimental peptide-protein complexes to evaluate how well
 Selection criteria: single-chain receptor, peptide <= 20 aa,
 high-resolution crystal structure, sequence-diverse receptors.
 
-  cd gen_sample/scripts
+  cd genSample/scripts
 
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --sample 40 \
     --single-chain \
     --max-peptide 20 \
@@ -411,15 +411,15 @@ Goal: retrieve all known binders for a specific receptor target from the
 Scenario: you are designing a peptide inhibitor for MDM2 (p53-binding domain).
 Several MDM2-peptide crystal structures are in PDBbind.
 
-  cd gen_sample/scripts
+  cd genSample/scripts
 
   # 1. Identify the PDB IDs of interest with a dry-run
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --dry-run \
-    --summary-tsv ../../scrape_pdb_bind/outputs/summary_merged.tsv
+    --summary-tsv ../../scrape/outputs/summary_merged.tsv
 
   # 2. Extract a specific known MDM2-peptide complex
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --pick 1ycr \
     --format pdb \
     --protonate \
@@ -427,7 +427,7 @@ Several MDM2-peptide crystal structures are in PDBbind.
 
   # 3. Get all MDM2-related entries (filter by receptor length range known for MDM2)
   #    and export with full metadata for sequence analysis
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --no-sample \
     --min-receptor 90 \
     --max-receptor 130 \
@@ -461,10 +461,10 @@ Goal: a balanced set of known binders (positives) and weak/non-binders
 Strategy: use ΔG thresholds to define strong binders (positives) and weak
 binders (negatives), ensuring structural diversity in both classes.
 
-  cd gen_sample/scripts
+  cd genSample/scripts
 
   # Strong binders — positives (dG <= -9 kcal/mol)
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --sample 30 \
     --max-dg -9.0 \
     --single-chain \
@@ -476,7 +476,7 @@ binders (negatives), ensuring structural diversity in both classes.
     --seed 42
 
   # Weak binders — negatives (dG >= -6 kcal/mol)
-  python 01_gen_sample.py \
+  python 01_genSample.py \
     --sample 30 \
     --min-dg -6.0 \
     --single-chain \
@@ -509,7 +509,7 @@ TIPS
 
 Reproducing a run exactly:
   run_config.json records every flag used. To reproduce:
-    cat gen_sample/outputs/run_01/run_config.json
+    cat genSample/outputs/run_01/run_config.json
 
 Checking what's in the pool before committing:
   Always use --dry-run first when exploring a new filter combination.

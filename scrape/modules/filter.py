@@ -214,6 +214,44 @@ def compute_interface_contacts(fixed_cif_path, pep_chain, rec_chains):
 
 
 # ---------------------------------------------------------------------------
+# SASA burial
+# ---------------------------------------------------------------------------
+
+def compute_sasa_burial(fixed_cif_path, pep_chain_id):
+    """Fraction of peptide SASA buried upon complex formation.
+
+    burial = (SASA_isolated - SASA_in_complex) / SASA_isolated
+
+    Uses Shrake-Rupley (Bio.PDB.SASA) on heavy atoms only.
+    Returns a float in [0, 1] or None on failure.
+    """
+    try:
+        from Bio.PDB import MMCIFParser as _CIFParser
+        from Bio.PDB.SASA import ShrakeRupley
+
+        struct = _CIFParser(QUIET=True).get_structure("s", str(fixed_cif_path))
+        model  = struct[0]
+        if pep_chain_id not in model:
+            return None
+
+        sr = ShrakeRupley()
+
+        # SASA of peptide atoms in full complex context
+        sr.compute(model, level="A")
+        sasa_complex = sum(a.sasa for a in model[pep_chain_id].get_atoms())
+
+        # SASA of peptide chain in isolation (overwrites .sasa on same atoms)
+        sr.compute(model[pep_chain_id], level="A")
+        sasa_isolated = sum(a.sasa for a in model[pep_chain_id].get_atoms())
+
+        if sasa_isolated == 0.0:
+            return None
+        return round((sasa_isolated - sasa_complex) / sasa_isolated, 4)
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Peptide topology detection
 # ---------------------------------------------------------------------------
 
@@ -704,8 +742,9 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir, convert_mse=True, strip_
     rec_description = extract_receptor_description(cif_path, receptor_chain_ids)
     rec_func_class  = classify_receptor_function(rec_description)
 
-    # --- Interface contacts and H-bond proxies (from fixed CIF) ---
+    # --- Interface contacts, H-bond proxies, and SASA burial (from fixed CIF) ---
     n_contacts, n_hbonds = compute_interface_contacts(fixed_cif_path, pep_id, rec_ids)
+    pep_sasa_burial      = compute_sasa_burial(fixed_cif_path, pep_id)
 
     # --- Peptide topology (linear vs cyclic_disulfide) ---
     peptide_topology = _detect_peptide_topology(_d, pep_id_check)
@@ -732,6 +771,7 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir, convert_mse=True, strip_
         receptor_func_class=rec_func_class,
         n_contacts=n_contacts,
         n_hbonds=n_hbonds,
+        pep_sasa_burial=pep_sasa_burial,
         ion_chains=ion_chains_out,
         residues_added=residues_added,
         mse_converted="Y" if (convert_mse and had_mse) else "",

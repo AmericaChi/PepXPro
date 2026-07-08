@@ -24,9 +24,17 @@ PLOTS_DIR   = OUTPUTS_DIR / "plots"
 LOG_FILE    = LOGS_DIR / "05_distributions.log"
 
 COL_LABELS = {
-    "dG_kcal_mol": "ΔG (kcal/mol)",
-    "resolution":  "Resolution (Å)",
-    "year":        "Deposition year",
+    "dG_kcal_mol":     "ΔG (kcal/mol)",
+    "resolution":      "Resolution (Å)",
+    "year":            "Deposition year",
+    "_pep_len":        "Peptide length",
+    "pep_sasa_burial": "Buried SASA",
+    "n_contacts":      "Interface contacts",
+    "n_hbonds":        "H-bond proxies",
+}
+
+YLABEL_OVERRIDES = {
+    "pep_sasa_burial": r"$f_\mathrm{buried}$",
 }
 
 SS_ORDER   = ["helix", "partial-helix", "beta", "mixed", "coil", "other", "NA"]
@@ -185,6 +193,14 @@ def main():
     rows = load_tsv(summary_tsv)
     print(f"  Loaded {len(rows)} entries from {summary_tsv}")
 
+    for r in rows:
+        val = r.get("peptide", "")
+        if ":" in val:
+            try:
+                r["_pep_len"] = str(int(val.split(":")[1]))
+            except (ValueError, IndexError):
+                pass
+
     numeric = parse_numeric_columns(rows)
     if not numeric:
         print("  No numeric columns found.")
@@ -205,10 +221,8 @@ def main():
     ss_counts   = count_categories(rows, "_peptide_ss_class", SS_ORDER)
     func_counts = count_categories(rows, "receptor_func_class", FUNC_ORDER)
 
-    # Layout: scalar cols + 2 grouped pct panels + 2 bar charts
     N_COLS  = 4
-    n_total = len(scalar_cols) + 2 + 2   # scalars + pep_pct + rec_pct + ss_bar + func_bar
-    n_rows  = math.ceil(n_total / N_COLS)
+    n_rows  = 3   # 12 panels fixed → 3 rows × 4 cols
     palette = sns.color_palette("muted")
     box_color = palette[0]
 
@@ -216,17 +230,39 @@ def main():
                              figsize=(N_COLS * 2.6, n_rows * 2.8),
                              squeeze=False)
 
-    def _boxstrip(ax, data, label):
+    def _boxstrip(ax, data, label, integer_y=False, ylabel=None):
         """Narrow boxplot + jittered strip for a single numeric series."""
         sns.boxplot(y=data, ax=ax, color=box_color, linewidth=0.8, width=0.18,
                     fliersize=0)
         sns.stripplot(y=data, ax=ax, color=box_color, size=1.4, alpha=0.25,
                       jitter=True)
         ax.set_title(label, fontsize=8, fontweight="bold", pad=3)
-        ax.set_ylabel(label, fontsize=7)
+        ax.set_ylabel(ylabel if ylabel is not None else label, fontsize=7)
         ax.set_xlabel("")
         ax.tick_params(labelsize=7)
         ax.set_xticks([])
+        if integer_y:
+            import matplotlib.ticker as ticker
+            ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        sns.despine(ax=ax)
+
+    def _grouped_num(ax, col_map, title, ylabel="residues"):
+        """Grouped boxplot + strip for two numeric columns on the same axis."""
+        frames = []
+        for lbl, col in col_map.items():
+            vals = numeric.get(col, [])
+            frames.append(pd.DataFrame({"val": vals, "type": lbl}))
+        df = pd.concat(frames, ignore_index=True)
+        sns.boxplot(data=df, x="type", y="val", ax=ax,
+                    palette="muted", linewidth=0.8, width=0.45, fliersize=0)
+        sns.stripplot(data=df, x="type", y="val", ax=ax,
+                      palette="muted", size=1.2, alpha=0.2, jitter=True)
+        ax.set_title(title, fontsize=8, fontweight="bold", pad=3)
+        ax.set_ylabel(ylabel, fontsize=7)
+        ax.set_xlabel("")
+        ax.tick_params(labelsize=7)
+        import matplotlib.ticker as ticker
+        ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
         sns.despine(ax=ax)
 
     def _grouped_pct(ax, cols, title):
@@ -248,26 +284,46 @@ def main():
         ax.set_ylim(-2, 102)
         sns.despine(ax=ax)
 
-    # Scalar boxplots
-    for i, col in enumerate(scalar_cols):
-        label = COL_LABELS.get(col, col.replace("_", " "))
-        _boxstrip(axes[i // N_COLS, i % N_COLS], numeric[col], label)
+    INTEGER_COLS = {"_pep_len"}
 
-    # Grouped pct panels
-    i_pp = len(scalar_cols)
-    _grouped_pct(axes[i_pp // N_COLS, i_pp % N_COLS], PCT_PEP, "Peptide SS (%)")
-    i_rp = i_pp + 1
-    _grouped_pct(axes[i_rp // N_COLS, i_rp % N_COLS], PCT_REC, "Receptor SS (%)")
+    # Explicit panel order
+    PANELS = [
+        ("scalar",      "dG_kcal_mol"),
+        ("scalar",      "resolution"),
+        ("scalar",      "year"),
+        ("scalar",      "_pep_len"),
+        ("pct",         PCT_PEP,   "Peptide SS (%)"),
+        ("bar",         "_peptide_ss_class", SS_ORDER, SS_COLORS, "Peptide SS class"),
+        ("grouped_num", {"Peptide": "peptide_added", "Receptor": "receptor_added"},
+                        "Added residues"),
+        ("pct",         PCT_REC,   "Receptor SS (%)"),
+        ("bar",         "receptor_func_class", FUNC_ORDER, FUNC_COLORS, "Receptor function"),
+        ("scalar",      "pep_sasa_burial"),
+        ("scalar",      "n_contacts"),
+        ("scalar",      "n_hbonds"),
+    ]
 
-    # Bar charts
-    i_ss = i_pp + 2
-    plot_bar(axes[i_ss // N_COLS, i_ss % N_COLS],
-             SS_ORDER, ss_counts, SS_COLORS, "Peptide SS class")
-    i_fn = i_pp + 3
-    plot_bar(axes[i_fn // N_COLS, i_fn % N_COLS],
-             FUNC_ORDER, func_counts, FUNC_COLORS, "Receptor function")
+    for i, spec in enumerate(PANELS):
+        ax = axes[i // N_COLS, i % N_COLS]
+        kind = spec[0]
+        if kind == "scalar":
+            col = spec[1]
+            label = COL_LABELS.get(col, col.replace("_", " "))
+            if numeric.get(col):
+                _boxstrip(ax, numeric[col], label,
+                          integer_y=(col in INTEGER_COLS),
+                          ylabel=YLABEL_OVERRIDES.get(col))
+            else:
+                ax.set_visible(False)
+        elif kind == "pct":
+            _grouped_pct(ax, spec[1], spec[2])
+        elif kind == "grouped_num":
+            _grouped_num(ax, spec[1], spec[2])
+        elif kind == "bar":
+            _, col, order, colors, title = spec
+            plot_bar(ax, order, count_categories(rows, col, order), colors, title)
 
-    for j in range(n_total, n_rows * N_COLS):
+    for j in range(len(PANELS), n_rows * N_COLS):
         axes[j // N_COLS, j % N_COLS].set_visible(False)
 
     fig.suptitle(f"PepXPro dataset  ·  n = {len(rows)}",
