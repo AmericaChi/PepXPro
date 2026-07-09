@@ -134,6 +134,7 @@ Use `--dims` to select dimensions:
 | `rec_coil` | `receptor_pct_coil` | % coil (receptor, DSSP) |
 | `n_contacts` | `n_contacts` | Peptide–receptor heavy-atom contacts (4.5 Å) |
 | `n_hbonds` | `n_hbonds` | H-bond proxies N/O/S within 3.5 Å |
+| `sasa_burial` | `pep_sasa_burial` | Fraction of peptide SASA buried upon complex formation |
 | `binding_kd` | `binding_type` | 1=Kd, 0=Ki/IC50 |
 | `resolution` | `resolution` | Crystal resolution (Å); NMR/NA → None |
 | `ss_class` | `peptide_ss_class` | Ordinal SS class (helix/beta/coil/…) |

@@ -88,7 +88,8 @@ def enrich_rows(rows):
             except (ValueError, TypeError):
                 r[dst] = 0.0
         # Interface features (n_contacts, n_hbonds) — None if absent
-        for src, dst in [("n_contacts", "_n_contacts"), ("n_hbonds", "_n_hbonds")]:
+        for src, dst in [("n_contacts", "_n_contacts"), ("n_hbonds", "_n_hbonds"),
+                         ("pep_sasa_burial", "_sasa_burial")]:
             raw = r.get(src, "")
             try:
                 r[dst] = float(raw) if raw != "" else None

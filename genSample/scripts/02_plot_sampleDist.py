@@ -158,12 +158,207 @@ def _plot_pca(ax, quality_rows, redundancy_rows, sample_rows):
     if len(Xs2):
         ax.scatter(Xs2[:, 0], Xs2[:, 1], s=35, color=C_SAMPLE, alpha=0.9,
                    zorder=3, label=f"sample ({len(Xs2)})")
-    ax.set_xlabel(f"PC1 ({v1:.0f}%)", fontsize=8)
-    ax.set_ylabel(f"PC2 ({v2:.0f}%)", fontsize=8)
-    ax.set_title(f"PCA coverage  |  diversity={diversity:.2f}  [{len(fields)}D]", fontsize=9)
+    ax.set_xlabel(f"PC1 ({v1:.0f}%)", fontsize=7)
+    ax.set_ylabel(f"PC2 ({v2:.0f}%)", fontsize=7)
+    ax.set_title(f"PCA coverage  ·  diversity={diversity:.2f}  [{len(fields)}D]",
+                 fontsize=8, fontweight="bold", pad=4)
     ax.tick_params(labelsize=7)
-    ax.legend(fontsize=7)
+    ax.legend(fontsize=6)
     return fields
+
+
+_SCRAPE_ROOT = _root.parent / "scrape"
+_TM_MATRIX   = _SCRAPE_ROOT / "outputs" / "tm_score_matrix.npz"
+_TM_IDS      = _SCRAPE_ROOT / "outputs" / "tm_score_ids.txt"
+
+
+def _nearest_neighbor_dists(rows):
+    """Min pairwise Euclidean distance in standardized feature space for each entry."""
+    try:
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        return None
+    mat, _ = _pca_matrix(rows, PCA_FIELDS)
+    if mat.shape[0] < 2 or mat.shape[1] < 1:
+        return None
+    X = StandardScaler().fit_transform(mat)
+    diffs = X[:, None, :] - X[None, :, :]
+    dists = np.sqrt((diffs ** 2).sum(axis=-1))
+    np.fill_diagonal(dists, np.inf)
+    return dists.min(axis=1)
+
+
+def _pairwise_seq_identities(rows, seq_col):
+    """All pairwise sequence identities (upper triangle) using Biopython BLOSUM62."""
+    seqs = [r.get(seq_col, "") for r in rows]
+    seqs = [s for s in seqs if s]
+    if len(seqs) < 2:
+        return None
+    try:
+        from Bio.Align import PairwiseAligner, substitution_matrices
+    except ImportError:
+        return None
+    aligner = PairwiseAligner()
+    aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+    aligner.open_gap_score    = -10
+    aligner.extend_gap_score  = -0.5
+    aligner.mode = "global"
+
+    identities = []
+    for i in range(len(seqs)):
+        for j in range(i + 1, len(seqs)):
+            try:
+                aln = next(iter(aligner.align(seqs[i], seqs[j])))
+                aln_len = aln.shape[1]
+                n_match = sum(
+                    seqs[i][a] == seqs[j][b]
+                    for a, b in zip(*aln.indices)
+                    if a >= 0 and b >= 0
+                )
+                identities.append(n_match / aln_len if aln_len > 0 else 0.0)
+            except Exception:
+                pass
+    return identities if identities else None
+
+
+def _pairwise_tm_scores(rows):
+    """Upper-triangle TM-scores for sample entries from the pre-computed matrix."""
+    if not _TM_MATRIX.exists() or not _TM_IDS.exists():
+        return None
+    with open(_TM_IDS, encoding="ascii") as fh:
+        all_ids = [line.strip() for line in fh]
+    id_to_idx = {pid: i for i, pid in enumerate(all_ids)}
+    sample_ids = [r.get("pdb_id", "").lower() for r in rows]
+    indices = [id_to_idx[pid] for pid in sample_ids if pid in id_to_idx]
+    if len(indices) < 2:
+        return None
+    data = np.load(_TM_MATRIX)
+    mat  = data["matrix"]
+    sub  = mat[np.ix_(indices, indices)]
+    triu = sub[np.triu_indices(len(indices), k=1)]
+    return triu.tolist()
+
+
+def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
+    """Generate run_diversity.png: nearest-neighbor, seq identities, TM-scores."""
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    fig, axes = plt.subplots(1, 4, figsize=(10.4, 2.8))
+    ax_nn, ax_rs, ax_ps, ax_tm = axes
+
+    red = cfg.get("redundancy", {})
+
+    # Load pool sequence identities if saved during filtering
+    pool_id_path = run_dir / "pool_seq_identities.json"
+    pool_id_data = {}
+    if pool_id_path.exists():
+        with open(pool_id_path, encoding="ascii") as fh:
+            pool_id_data = json.load(fh)
+
+    # Panel 1: nearest-neighbor distance (feature space)
+    nn_dists = _nearest_neighbor_dists(quality_rows)
+    nn_dists_s = _nearest_neighbor_dists(sample_rows)
+    if nn_dists is not None and nn_dists_s is not None:
+        ax_nn.hist(nn_dists,   bins=20, color=C_QUALITY, alpha=0.6,
+                   label=f"pool ({len(quality_rows)})")
+        ax_nn.hist(nn_dists_s, bins=20, color=C_SAMPLE,  alpha=0.9,
+                   label=f"sample ({len(sample_rows)})")
+        ax_nn.set_xlabel("min pairwise distance", fontsize=7)
+        ax_nn.set_ylabel("count", fontsize=7)
+        ax_nn.set_title("Nearest-neighbor distance\n(feature space)",
+                         fontsize=8, fontweight="bold", pad=4)
+        ax_nn.legend(fontsize=6)
+        ax_nn.tick_params(labelsize=7)
+    else:
+        ax_nn.text(0.5, 0.5, "scikit-learn required",
+                   ha="center", va="center", transform=ax_nn.transAxes, fontsize=7)
+        ax_nn.set_title("Nearest-neighbor distance", fontsize=8, fontweight="bold", pad=4)
+    sns.despine(ax=ax_nn)
+
+    # Panel 2: receptor sequence identity
+    rec_ids_pool   = [v * 100 for v in pool_id_data.get("receptor", [])]
+    rec_ids_sample = _pairwise_seq_identities(sample_rows, "receptor_seq")
+    if rec_ids_pool or rec_ids_sample is not None:
+        if rec_ids_pool:
+            ax_rs.hist(rec_ids_pool, bins=20, color=C_QUALITY, alpha=0.6,
+                       label=f"pool (vs rep, n={len(rec_ids_pool)})")
+        if rec_ids_sample is not None:
+            ax_rs.hist([v * 100 for v in rec_ids_sample], bins=20,
+                       color=C_SAMPLE, alpha=0.9,
+                       label=f"sample ({len(sample_rows)})")
+        thr = red.get("seq_id_receptor_threshold")
+        if thr is not None:
+            ax_rs.axvline(thr * 100, color="#E53935", linewidth=1.2, linestyle="--",
+                          label=f"threshold {thr*100:.0f}%")
+        ax_rs.legend(fontsize=6)
+        ax_rs.set_xlabel("sequence identity (%)", fontsize=7)
+        ax_rs.set_ylabel("count", fontsize=7)
+        ax_rs.set_title("Receptor seq identity", fontsize=8, fontweight="bold", pad=4)
+        ax_rs.tick_params(labelsize=7)
+    else:
+        ax_rs.text(0.5, 0.5, "receptor_seq not available",
+                   ha="center", va="center", transform=ax_rs.transAxes, fontsize=7)
+        ax_rs.set_title("Receptor seq identity", fontsize=8, fontweight="bold", pad=4)
+    sns.despine(ax=ax_rs)
+
+    # Panel 3: peptide sequence identity
+    pep_ids_pool   = [v * 100 for v in pool_id_data.get("peptide", [])]
+    pep_ids_sample = _pairwise_seq_identities(sample_rows, "peptide_seq")
+    if pep_ids_pool or pep_ids_sample is not None:
+        if pep_ids_pool:
+            ax_ps.hist(pep_ids_pool, bins=20, color=C_QUALITY, alpha=0.6,
+                       label=f"pool (n={len(pep_ids_pool)} pairs)")
+        if pep_ids_sample is not None:
+            ax_ps.hist([v * 100 for v in pep_ids_sample], bins=20,
+                       color=C_SAMPLE, alpha=0.9,
+                       label=f"sample ({len(sample_rows)})")
+        thr = red.get("seq_id_peptide_threshold")
+        if thr is not None:
+            ax_ps.axvline(thr * 100, color="#E53935", linewidth=1.2, linestyle="--",
+                          label=f"threshold {thr*100:.0f}%")
+        ax_ps.legend(fontsize=6)
+        ax_ps.set_xlabel("sequence identity (%)", fontsize=7)
+        ax_ps.set_ylabel("count", fontsize=7)
+        ax_ps.set_title("Peptide seq identity", fontsize=8, fontweight="bold", pad=4)
+        ax_ps.tick_params(labelsize=7)
+    else:
+        ax_ps.text(0.5, 0.5, "peptide_seq not available",
+                   ha="center", va="center", transform=ax_ps.transAxes, fontsize=7)
+        ax_ps.set_title("Peptide seq identity", fontsize=8, fontweight="bold", pad=4)
+    sns.despine(ax=ax_ps)
+
+    # Panel 4: pairwise TM-score
+    tm_scores = _pairwise_tm_scores(sample_rows)
+    if tm_scores is not None:
+        ax_tm.hist(tm_scores, bins=20, color=C_SAMPLE, alpha=0.9)
+        thr = red.get("tm_score_receptor")
+        if thr is not None:
+            ax_tm.axvline(thr, color="#E53935", linewidth=1.2, linestyle="--",
+                          label=f"threshold {thr}")
+            ax_tm.legend(fontsize=6)
+        ax_tm.set_xlabel("TM-score", fontsize=7)
+        ax_tm.set_ylabel("count", fontsize=7)
+        ax_tm.set_title(f"Receptor TM-score\n(sample pairs, n={len(sample_rows)})",
+                         fontsize=8, fontweight="bold", pad=4)
+        ax_tm.tick_params(labelsize=7)
+    else:
+        ax_tm.text(0.5, 0.5, "TM-score matrix not available",
+                   ha="center", va="center", transform=ax_tm.transAxes, fontsize=7)
+        ax_tm.set_title("Receptor TM-score", fontsize=8, fontweight="bold", pad=4)
+    sns.despine(ax=ax_tm)
+
+    run_label = run_dir.name
+    fig.suptitle(f"{run_label}  ·  diversity metrics",
+                 fontsize=9, fontweight="bold", y=1.01)
+    fig.tight_layout(w_pad=1.5, h_pad=2.0)
+
+    plots_dir = run_dir / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    out = plots_dir / "run_diversity.png"
+    fig.savefig(out, dpi=200, bbox_inches="tight")
+    print(f"  Saved {out}")
+    plt.close(fig)
 
 
 def main():
@@ -227,8 +422,12 @@ def main():
 
     import matplotlib.pyplot as plt
     import matplotlib.ticker as ticker
+    import seaborn as sns
 
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    sns.set_theme(style="ticks", context="paper", font_scale=0.9,
+                  rc={"axes.spines.top": False, "axes.spines.right": False})
+
+    fig, axes = plt.subplots(2, 2, figsize=(10.4, 5.6))
     ax1, ax2, ax3, ax4 = axes[0, 0], axes[0, 1], axes[1, 0], axes[1, 1]
 
     BINS = 20
@@ -239,12 +438,14 @@ def main():
     ax1.hist(dg_q, bins=BINS, color=C_QUALITY, alpha=0.6, label=f"quality ({len(dg_q)})")
     ax1.hist(dg_r, bins=BINS, color=C_REDUN,   alpha=0.6, label=f"redundancy ({len(dg_r)})")
     ax1.hist(dg_s, bins=BINS, color=C_SAMPLE,  alpha=0.9, label=f"sample ({len(dg_s)})")
-    ax1.set_xlabel("dG (kcal/mol)")
-    ax1.set_ylabel("Count")
-    ax1.set_title("Binding affinity distribution")
+    ax1.set_xlabel("dG (kcal/mol)", fontsize=7)
+    ax1.set_ylabel("count", fontsize=7)
+    ax1.set_title("Binding affinity distribution", fontsize=8, fontweight="bold", pad=4)
     ax1.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     ax1.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-    ax1.legend(fontsize=8)
+    ax1.tick_params(labelsize=7)
+    ax1.legend(fontsize=6)
+    sns.despine(ax=ax1)
 
     # Panel 2: dim_y histogram
     if dim_y in CAT_DIMS and y_q:
@@ -260,33 +461,40 @@ def main():
         ax2.hist(y_r, bins=bins_y, color=C_REDUN,   alpha=0.6, label=f"redundancy ({len(y_r)})")
         ax2.hist(y_s, bins=bins_y, color=C_SAMPLE,  alpha=0.9, label=f"sample ({len(y_s)})")
         ax2.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-    ax2.set_xlabel(label_y)
-    ax2.set_ylabel("Count")
-    ax2.set_title(f"{label_y} distribution")
+    ax2.set_xlabel(label_y, fontsize=7)
+    ax2.set_ylabel("count", fontsize=7)
+    ax2.set_title(f"{label_y} distribution", fontsize=8, fontweight="bold", pad=4)
     ax2.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-    ax2.legend(fontsize=8)
+    ax2.tick_params(labelsize=7)
+    ax2.legend(fontsize=6)
+    sns.despine(ax=ax2)
 
     # Panel 3: scatter dim_x x dim_y
-    ax3.scatter(x_q, y_q, s=10, color=C_QUALITY, alpha=0.3, label=f"quality ({len(x_q)})")
-    ax3.scatter(x_r, y_r, s=10, color=C_REDUN,   alpha=0.5, label=f"redundancy ({len(x_r)})")
-    ax3.scatter(x_s, y_s, s=30, color=C_SAMPLE,  alpha=1.0, label=f"sample ({len(x_s)})",
+    ax3.scatter(x_q, y_q, s=8,  color=C_QUALITY, alpha=0.3, label=f"quality ({len(x_q)})")
+    ax3.scatter(x_r, y_r, s=8,  color=C_REDUN,   alpha=0.5, label=f"redundancy ({len(x_r)})")
+    ax3.scatter(x_s, y_s, s=20, color=C_SAMPLE,  alpha=1.0, label=f"sample ({len(x_s)})",
                 zorder=5)
-    ax3.set_xlabel(label_x)
-    ax3.set_ylabel(label_y)
-    ax3.set_title(f"Coverage: {label_x} x {label_y}  [{sampling_method}]")
+    ax3.set_xlabel(label_x, fontsize=7)
+    ax3.set_ylabel(label_y, fontsize=7)
+    ax3.set_title(f"Coverage: {label_x} × {label_y}  [{sampling_method}]",
+                  fontsize=8, fontweight="bold", pad=4)
     ax3.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
     if dim_y in CAT_DIMS:
         _apply_cat_ticks(ax3, CAT_DIMS[dim_y], axis="y")
     else:
         ax3.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-    ax3.legend(fontsize=8)
+    ax3.tick_params(labelsize=7)
+    ax3.legend(fontsize=6)
+    sns.despine(ax=ax3)
 
     # Panel 4: PCA coverage
     pca_fields = _plot_pca(ax4, quality_rows, redundancy_rows, sample_rows)
+    sns.despine(ax=ax4)
 
     run_label = args.run or Path(args.run_dir).name if args.run_dir else "run"
-    fig.suptitle(f"{run_label} — pool filtering and sampling", fontsize=12)
-    fig.tight_layout()
+    fig.suptitle(f"{run_label}  ·  pool filtering and sampling",
+                 fontsize=9, fontweight="bold", y=1.01)
+    fig.tight_layout(w_pad=1.5, h_pad=2.0)
 
     if args.output:
         out = Path(args.output)
@@ -296,17 +504,23 @@ def main():
         plots_dir.mkdir(parents=True, exist_ok=True)
         suffix = f"_{dim_x}_{dim_y}" if args.dims else ""
         out = plots_dir / f"run_comparison{suffix}.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight")
+    fig.savefig(out, dpi=200, bbox_inches="tight")
     print(f"  Saved {out}")
     plt.close(fig)
 
-    if pca_fields and config_path.exists():
+    cfg = {}
+    if config_path.exists():
         with open(config_path, encoding="ascii") as fh:
             cfg = json.load(fh)
+
+    if pca_fields:
         cfg["pca_features"] = [f.lstrip("_") for f in pca_fields]
-        with open(config_path, "w", encoding="ascii") as fh:
-            json.dump(cfg, fh, indent=2)
-        print(f"  Updated {config_path.name} with pca_features ({len(pca_fields)})")
+        if config_path.exists():
+            with open(config_path, "w", encoding="ascii") as fh:
+                json.dump(cfg, fh, indent=2)
+            print(f"  Updated {config_path.name} with pca_features ({len(pca_fields)})")
+
+    _plot_diversity(run_dir, sample_rows, quality_rows, cfg)
 
 
 if __name__ == "__main__":

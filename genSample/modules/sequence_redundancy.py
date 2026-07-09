@@ -139,17 +139,22 @@ def filter_receptor_redundancy(rows, threshold):
                 "conda install -c conda-forge cd-hit"
             )
 
-        rep_ids = _parse_cdhit_clstr(fasta_out + ".clstr")
+        rep_ids, rec_identities = _parse_cdhit_clstr(fasta_out + ".clstr")
 
     filtered = [r for r in rows if r["pdb_id"] in rep_ids]
     print(f"  --seq-id-receptor {threshold:.0%}: {len(filtered)} of {before} entries kept "
           f"({before - len(filtered)} removed)")
-    return filtered
+    return filtered, rec_identities
 
 
 def _parse_cdhit_clstr(clstr_path):
-    """Return set of pdb_ids that are cluster representatives (lines ending with *)."""
-    reps = set()
+    """Return (rep_ids, member_identities).
+
+    rep_ids: set of pdb_ids that are cluster representatives.
+    member_identities: list of float identity values (each member vs its rep).
+    """
+    reps        = set()
+    identities  = []
     with open(clstr_path) as fh:
         for line in fh:
             if not line.strip() or line.startswith(">Cluster"):
@@ -158,7 +163,11 @@ def _parse_cdhit_clstr(clstr_path):
                 m = re.search(r">([^.]+)\.\.\.", line)
                 if m:
                     reps.add(m.group(1).lower())
-    return reps
+            else:
+                m_id = re.search(r"at\s+([\d.]+)%", line)
+                if m_id:
+                    identities.append(float(m_id.group(1)) / 100.0)
+    return reps, identities
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +209,9 @@ def filter_peptide_redundancy(rows, threshold):
     before = len(rows)
     rows_sorted = sorted(rows, key=_res_sort_key)
 
-    selected = []
-    removed  = set()
+    selected    = []
+    removed     = set()
+    identities  = []
 
     for i, r in enumerate(rows_sorted):
         if r["pdb_id"] in removed:
@@ -212,12 +222,14 @@ def filter_peptide_redundancy(rows, threshold):
             rj = rows_sorted[j]
             if rj["pdb_id"] in removed:
                 continue
-            if identity(seq_i, _peptide_seq(rj)) > threshold:
+            id_val = identity(seq_i, _peptide_seq(rj))
+            identities.append(id_val)
+            if id_val > threshold:
                 removed.add(rj["pdb_id"])
 
     print(f"  --seq-id-peptide {threshold:.0%}: {len(selected)} of {before} entries kept "
           f"({before - len(selected)} removed)")
-    return selected
+    return selected, identities
 
 
 # ---------------------------------------------------------------------------
@@ -225,22 +237,31 @@ def filter_peptide_redundancy(rows, threshold):
 # ---------------------------------------------------------------------------
 
 def apply_redundancy_filters(rows, args):
-    """Apply active sequence redundancy filters in order: receptor then peptide."""
+    """Apply active sequence redundancy filters in order: receptor then peptide.
+
+    Returns (filtered_rows, identity_data) where identity_data is a dict with
+    optional keys 'receptor' and 'peptide' containing pairwise identity lists.
+    """
     rec_preset  = getattr(args, "seq_id_receptor", None)
     pep_preset  = getattr(args, "seq_id_peptide",  None)
+    identity_data = {}
 
     if rec_preset:
         if rec_preset == "custom":
             threshold = args.seq_id_receptor_threshold
         else:
             threshold = PRESETS[rec_preset]["receptor"]
-        rows = filter_receptor_redundancy(rows, threshold)
+        rows, rec_ids = filter_receptor_redundancy(rows, threshold)
+        if rec_ids:
+            identity_data["receptor"] = rec_ids
 
     if pep_preset:
         if pep_preset == "custom":
             threshold = args.seq_id_peptide_threshold
         else:
             threshold = PRESETS[pep_preset]["peptide"]
-        rows = filter_peptide_redundancy(rows, threshold)
+        rows, pep_ids = filter_peptide_redundancy(rows, threshold)
+        if pep_ids:
+            identity_data["peptide"] = pep_ids
 
-    return rows
+    return rows, identity_data

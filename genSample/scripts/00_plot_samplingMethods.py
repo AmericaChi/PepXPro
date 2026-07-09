@@ -64,6 +64,10 @@ def main():
 
     import matplotlib.pyplot as plt
     import matplotlib.gridspec as gridspec
+    import seaborn as sns
+
+    sns.set_theme(style="ticks", context="paper", font_scale=0.9,
+                  rc={"axes.spines.top": False, "axes.spines.right": False})
 
     if not SUMMARY_TSV.exists():
         print(f"  Error: {SUMMARY_TSV} not found.")
@@ -90,8 +94,8 @@ def main():
 
     # --- Plot ---
     n_methods = len(methods)
-    fig = plt.figure(figsize=(5 * n_methods, 5))
-    gs  = gridspec.GridSpec(1, n_methods, figure=fig, wspace=0.35)
+    fig = plt.figure(figsize=(2.6 * n_methods, 2.8))
+    gs  = gridspec.GridSpec(1, n_methods, figure=fig, wspace=0.45)
 
     xlabel = DIM_LABELS.get(args.dims[0], args.dims[0])
     ylabel = DIM_LABELS.get(args.dims[1], args.dims[1])
@@ -105,29 +109,30 @@ def main():
         sel_y = [r[y_key] for r in selected]
 
         ax = fig.add_subplot(gs[i])
-        ax.scatter(pool_x, pool_y, c="#cccccc", s=12, alpha=0.4, linewidths=0,
+        ax.scatter(pool_x, pool_y, c="#cccccc", s=8, alpha=0.4, linewidths=0,
                    zorder=1, label=f"Pool (n={len(pool)})")
-        ax.scatter(sel_x, sel_y, c=COLORS[method], s=45, alpha=0.85,
+        ax.scatter(sel_x, sel_y, c=COLORS[method], s=25, alpha=0.85,
                    linewidths=0.4, edgecolors="white", zorder=2,
                    label=f"Selected (n={len(selected)})")
 
-        ax.set_title(f"{label}\n({dims_str})", fontsize=11, fontweight="bold", pad=8)
-        ax.set_xlabel(xlabel, fontsize=9)
-        ax.set_ylabel(ylabel if i == 0 else "", fontsize=9)
-        ax.tick_params(labelsize=8)
-        ax.legend(fontsize=7, loc="upper right", framealpha=0.7)
+        ax.set_title(f"{label}\n({dims_str})", fontsize=8, fontweight="bold", pad=4)
+        ax.set_xlabel(xlabel, fontsize=7)
+        ax.set_ylabel(ylabel if i == 0 else "", fontsize=7)
+        ax.tick_params(labelsize=7)
+        ax.legend(fontsize=6, loc="upper right", framealpha=0.7)
         ax.set_xlim(min(pool_x) - 0.5, max(pool_x) + 0.5)
         ax.set_ylim(min(pool_y) - 0.5, max(pool_y) + 0.5)
+        sns.despine(ax=ax)
 
     seed_str = f"seed={args.seed}" if args.seed is not None else "no seed"
     fig.suptitle(
-        f"Sampling method comparison  |  N={args.n}, {seed_str}, pool={len(pool)}",
-        fontsize=12, y=1.02,
+        f"Sampling method comparison  ·  N={args.n}, {seed_str}, pool={len(pool)}",
+        fontsize=9, fontweight="bold", y=1.01,
     )
 
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     out = PLOTS_DIR / "sampling_benchmark.png"
-    fig.savefig(out, dpi=150, bbox_inches="tight")
+    fig.savefig(out, dpi=200, bbox_inches="tight")
     print(f"  Saved {out}")
     plt.close(fig)
 

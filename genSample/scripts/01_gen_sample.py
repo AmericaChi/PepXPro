@@ -130,8 +130,9 @@ def build_parser():
     # ---- Modes (mutually exclusive) ----
     mode_grp = p.add_argument_group("modes (one required)")
     mode = mode_grp.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--sample", metavar="N", type=int,
-                      help="Sample N entries from the filtered pool.")
+    mode.add_argument("--sample", metavar="N|PCT%", type=str,
+                      help="Sample N entries, or a percentage of the filtered pool "
+                           "(e.g. --sample 20 or --sample 30%%).")
     mode.add_argument("--no-sample", action="store_true",
                       help="Take the full filtered pool without sampling.")
     mode.add_argument("--dry-run", action="store_true",
@@ -324,7 +325,7 @@ def main():
         sys.exit(1)
 
     # Sequence redundancy
-    pool_seq = apply_redundancy_filters(pool_quality, args)
+    pool_seq, identity_data = apply_redundancy_filters(pool_quality, args)
 
     if not pool_seq:
         print("  No entries remain after sequence redundancy filtering.")
@@ -357,12 +358,40 @@ def main():
         save_tsv(pool_redundancy, run_dir / "pool_redundancy.tsv", POOL_COLS)
         print(f"  Written {run_dir / 'pool_redundancy.tsv'}  ({len(pool_redundancy)} entries)")
 
+    if identity_data:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        import json as _json
+        id_path = run_dir / "pool_seq_identities.json"
+        with open(id_path, "w", encoding="ascii") as fh:
+            _json.dump(identity_data, fh)
+        print(f"  Written {id_path}")
+
     # Sample or take all
     if args.no_sample:
         selected = pool_redundancy
         print(f"  --no-sample: keeping all {len(selected)} entries")
     else:
-        selected = run_sampling(pool_redundancy, args.sample, method=args.sampling,
+        sample_spec = args.sample.strip()
+        if sample_spec.endswith("%"):
+            try:
+                pct = float(sample_spec[:-1])
+            except ValueError:
+                print(f"  Error: invalid --sample value '{sample_spec}'. "
+                      "Use an integer or a percentage (e.g. 30%).")
+                sys.exit(1)
+            if not 0 < pct <= 100:
+                print(f"  Error: percentage must be between 0 and 100 (got {pct}).")
+                sys.exit(1)
+            n_sample = max(1, round(len(pool_redundancy) * pct / 100))
+            print(f"  --sample {sample_spec} → {n_sample} of {len(pool_redundancy)} entries")
+        else:
+            try:
+                n_sample = int(sample_spec)
+            except ValueError:
+                print(f"  Error: invalid --sample value '{sample_spec}'. "
+                      "Use an integer or a percentage (e.g. 30%).")
+                sys.exit(1)
+        selected = run_sampling(pool_redundancy, n_sample, method=args.sampling,
                                 dims=args.dims, seed=args.seed)
         print(f"  Sampled {len(selected)} of {len(pool_redundancy)} entries "
               f"(method: {method_label(args.sampling, args.dims)})")
@@ -375,6 +404,7 @@ def main():
 
     config = {
         "mode":            "pick" if args.pick else ("no-sample" if args.no_sample else "sample"),
+        "sample_spec":     args.sample if not args.no_sample and not args.pick else None,
         "sample_size":     len(selected),
         "pool_size":       len(pool_redundancy),
         "sampling_method": method_label(args.sampling, args.dims) if not args.no_sample else "none",
@@ -383,6 +413,7 @@ def main():
             "seq_id_receptor_threshold": args.seq_id_receptor_threshold,
             "seq_id_peptide":            args.seq_id_peptide,
             "seq_id_peptide_threshold":  args.seq_id_peptide_threshold,
+            "tm_score_receptor":         args.tm_score_receptor,
         },
         "dims":            args.dims if not args.no_sample else None,
         "seed":            args.seed,

@@ -15,9 +15,10 @@ DIM_KEYS = {
     "rec_helix":    "_rec_helix",
     "rec_beta":     "_rec_beta",
     "rec_coil":     "_rec_coil",
-    # Interface features (require n_contacts/n_hbonds in summary.tsv)
+    # Interface features (require n_contacts/n_hbonds/pep_sasa_burial in summary.tsv)
     "n_contacts":   "_n_contacts",
     "n_hbonds":     "_n_hbonds",
+    "sasa_burial":  "_sasa_burial",
     # Experimental metadata
     "binding_kd":   "_binding_kd",
     "resolution":   "_resolution",
