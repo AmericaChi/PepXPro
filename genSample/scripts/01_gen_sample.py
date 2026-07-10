@@ -15,6 +15,7 @@ Usage examples:
 """
 
 import argparse
+import shlex
 import sys
 from pathlib import Path
 
@@ -32,7 +33,10 @@ from modules.export import next_run_dir, write_sample, save_run_config, link_cif
 from modules.utils import save_tsv
 
 POOL_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
-             "resolution", "peptide_ss_class", "receptor_func_class"]
+             "resolution", "peptide_ss_class", "receptor_func_class",
+             "peptide_pct_helix", "peptide_pct_beta", "peptide_pct_coil",
+             "receptor_pct_helix", "receptor_pct_beta", "receptor_pct_coil",
+             "n_contacts", "n_hbonds", "pep_sasa_burial"]
 
 # ---------------------------------------------------------------------------
 # Paths (relative to scrape, which lives next to genSample)
@@ -44,6 +48,11 @@ FILTERED_TSV   = _SCRAPE_DIR / "outputs" / "filtered_systems.tsv"
 FIXED_CIF_DIR  = _SCRAPE_DIR / "fixed_cif"
 OUTPUTS_DIR    = _root / "outputs"
 LOGS_DIR       = _root / "logs"
+
+
+def _invoked_command():
+    """The exact command line that produced this run, for reproducibility."""
+    return "python " + Path(sys.argv[0]).name + " " + shlex.join(sys.argv[1:])
 
 
 class _Tee:
@@ -300,11 +309,13 @@ def main():
         tee = _Tee(LOGS_DIR / f"{run_dir.name}.log")
         sys.stdout = tee
         print(f"  Output → {run_dir}")
+        print(f"  Command: {_invoked_command()}")
         write_sample(selected, run_dir,
                      columns=full_cols if args.full_metadata else None)
         config = {
             "mode": "pick",
             "pdb_id": pdb_id,
+            "command": _invoked_command(),
             "protonate": args.protonate,
             "ph": args.ph if args.protonate else None,
             "sources": {
@@ -325,7 +336,7 @@ def main():
         sys.exit(1)
 
     # Sequence redundancy
-    pool_seq, identity_data = apply_redundancy_filters(pool_quality, args)
+    pool_seq, _ = apply_redundancy_filters(pool_quality, args)
 
     if not pool_seq:
         print("  No entries remain after sequence redundancy filtering.")
@@ -349,6 +360,7 @@ def main():
     tee = _Tee(LOGS_DIR / f"{run_dir.name}.log")
     sys.stdout = tee
     print(f"  Output → {run_dir}")
+    print(f"  Command: {_invoked_command()}")
 
     # Save intermediate pools
     if not getattr(args, "no_save_pools", False):
@@ -357,14 +369,6 @@ def main():
         print(f"  Written {run_dir / 'pool_quality.tsv'}  ({len(pool_quality)} entries)")
         save_tsv(pool_redundancy, run_dir / "pool_redundancy.tsv", POOL_COLS)
         print(f"  Written {run_dir / 'pool_redundancy.tsv'}  ({len(pool_redundancy)} entries)")
-
-    if identity_data:
-        run_dir.mkdir(parents=True, exist_ok=True)
-        import json as _json
-        id_path = run_dir / "pool_seq_identities.json"
-        with open(id_path, "w", encoding="ascii") as fh:
-            _json.dump(identity_data, fh)
-        print(f"  Written {id_path}")
 
     # Sample or take all
     if args.no_sample:
@@ -404,6 +408,7 @@ def main():
 
     config = {
         "mode":            "pick" if args.pick else ("no-sample" if args.no_sample else "sample"),
+        "command":         _invoked_command(),
         "sample_spec":     args.sample if not args.no_sample and not args.pick else None,
         "sample_size":     len(selected),
         "pool_size":       len(pool_redundancy),

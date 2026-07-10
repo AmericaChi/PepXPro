@@ -54,7 +54,7 @@ PCA_FIELDS = [
     "_dg", "_pep_len", "_rec_len", "_n_rec_chains",
     "_pep_helix", "_pep_beta", "_pep_coil",
     "_rec_helix", "_rec_beta", "_rec_coil",
-    "_n_contacts", "_n_hbonds",
+    "_n_contacts", "_n_hbonds", "_sasa_burial",
     "_resolution", "_binding_kd",
 ]
 
@@ -167,9 +167,30 @@ def _plot_pca(ax, quality_rows, redundancy_rows, sample_rows):
     return fields
 
 
-_SCRAPE_ROOT = _root.parent / "scrape"
-_TM_MATRIX   = _SCRAPE_ROOT / "outputs" / "tm_score_matrix.npz"
-_TM_IDS      = _SCRAPE_ROOT / "outputs" / "tm_score_ids.txt"
+_SCRAPE_ROOT      = _root.parent / "scrape"
+_TM_MATRIX        = _SCRAPE_ROOT / "outputs" / "tm_score_matrix.npz"
+_TM_IDS           = _SCRAPE_ROOT / "outputs" / "tm_score_ids.txt"
+_SCRAPE_SUMMARY_TSV = _SCRAPE_ROOT / "outputs" / "summary.tsv"
+
+
+def _attach_sequences(rows):
+    """Join receptor_seq/peptide_seq from summary.tsv by pdb_id.
+
+    sample.tsv is compact by default (no --full-metadata) and drops these columns,
+    even though the 20 selected entries are a subset of summary.tsv and their
+    sequences are readily available there.
+    """
+    if not rows or rows[0].get("receptor_seq"):
+        return rows  # already present, e.g. written with --full-metadata
+    if not _SCRAPE_SUMMARY_TSV.exists():
+        return rows
+    seq_by_id = {r["pdb_id"]: (r.get("receptor_seq", ""), r.get("peptide_seq", ""))
+                 for r in load_tsv(_SCRAPE_SUMMARY_TSV)}
+    for r in rows:
+        rec_seq, pep_seq = seq_by_id.get(r["pdb_id"], ("", ""))
+        r["receptor_seq"] = rec_seq
+        r["peptide_seq"] = pep_seq
+    return rows
 
 
 def _nearest_neighbor_dists(rows):
@@ -188,9 +209,20 @@ def _nearest_neighbor_dists(rows):
     return dists.min(axis=1)
 
 
+def _clean_seq(raw, seq_col):
+    """Strip the 'A:SEQ' / 'A:SEQ|B:SEQ' chain-id prefix used in receptor_seq."""
+    if seq_col != "receptor_seq" or not raw:
+        return raw
+    if "|" in raw:
+        return "".join(p.split(":", 1)[1] for p in raw.split("|") if ":" in p)
+    if ":" in raw:
+        return raw.split(":", 1)[1]
+    return raw
+
+
 def _pairwise_seq_identities(rows, seq_col):
     """All pairwise sequence identities (upper triangle) using Biopython BLOSUM62."""
-    seqs = [r.get(seq_col, "") for r in rows]
+    seqs = [_clean_seq(r.get(seq_col, ""), seq_col) for r in rows]
     seqs = [s for s in seqs if s]
     if len(seqs) < 2:
         return None
@@ -240,7 +272,11 @@ def _pairwise_tm_scores(rows):
 
 
 def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
-    """Generate run_diversity.png: nearest-neighbor, seq identities, TM-scores."""
+    """Generate run_diversity.png: nearest-neighbor, seq identities, TM-scores.
+
+    Each panel shows only the sample's own distribution (no pool overlay) —
+    the pool is 1-2 orders of magnitude larger and dwarfs the sample otherwise.
+    """
     import matplotlib.pyplot as plt
     import seaborn as sns
 
@@ -249,20 +285,10 @@ def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
 
     red = cfg.get("redundancy", {})
 
-    # Load pool sequence identities if saved during filtering
-    pool_id_path = run_dir / "pool_seq_identities.json"
-    pool_id_data = {}
-    if pool_id_path.exists():
-        with open(pool_id_path, encoding="ascii") as fh:
-            pool_id_data = json.load(fh)
-
     # Panel 1: nearest-neighbor distance (feature space)
-    nn_dists = _nearest_neighbor_dists(quality_rows)
     nn_dists_s = _nearest_neighbor_dists(sample_rows)
-    if nn_dists is not None and nn_dists_s is not None:
-        ax_nn.hist(nn_dists,   bins=20, color=C_QUALITY, alpha=0.6,
-                   label=f"pool ({len(quality_rows)})")
-        ax_nn.hist(nn_dists_s, bins=20, color=C_SAMPLE,  alpha=0.9,
+    if nn_dists_s is not None:
+        ax_nn.hist(nn_dists_s, bins=20, color=C_SAMPLE, alpha=0.9,
                    label=f"sample ({len(sample_rows)})")
         ax_nn.set_xlabel("min pairwise distance", fontsize=7)
         ax_nn.set_ylabel("count", fontsize=7)
@@ -277,16 +303,10 @@ def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
     sns.despine(ax=ax_nn)
 
     # Panel 2: receptor sequence identity
-    rec_ids_pool   = [v * 100 for v in pool_id_data.get("receptor", [])]
     rec_ids_sample = _pairwise_seq_identities(sample_rows, "receptor_seq")
-    if rec_ids_pool or rec_ids_sample is not None:
-        if rec_ids_pool:
-            ax_rs.hist(rec_ids_pool, bins=20, color=C_QUALITY, alpha=0.6,
-                       label=f"pool (vs rep, n={len(rec_ids_pool)})")
-        if rec_ids_sample is not None:
-            ax_rs.hist([v * 100 for v in rec_ids_sample], bins=20,
-                       color=C_SAMPLE, alpha=0.9,
-                       label=f"sample ({len(sample_rows)})")
+    if rec_ids_sample is not None:
+        ax_rs.hist([v * 100 for v in rec_ids_sample], bins=20,
+                   color=C_SAMPLE, alpha=0.9, label=f"sample ({len(sample_rows)})")
         thr = red.get("seq_id_receptor_threshold")
         if thr is not None:
             ax_rs.axvline(thr * 100, color="#E53935", linewidth=1.2, linestyle="--",
@@ -303,16 +323,10 @@ def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
     sns.despine(ax=ax_rs)
 
     # Panel 3: peptide sequence identity
-    pep_ids_pool   = [v * 100 for v in pool_id_data.get("peptide", [])]
     pep_ids_sample = _pairwise_seq_identities(sample_rows, "peptide_seq")
-    if pep_ids_pool or pep_ids_sample is not None:
-        if pep_ids_pool:
-            ax_ps.hist(pep_ids_pool, bins=20, color=C_QUALITY, alpha=0.6,
-                       label=f"pool (n={len(pep_ids_pool)} pairs)")
-        if pep_ids_sample is not None:
-            ax_ps.hist([v * 100 for v in pep_ids_sample], bins=20,
-                       color=C_SAMPLE, alpha=0.9,
-                       label=f"sample ({len(sample_rows)})")
+    if pep_ids_sample is not None:
+        ax_ps.hist([v * 100 for v in pep_ids_sample], bins=20,
+                   color=C_SAMPLE, alpha=0.9, label=f"sample ({len(sample_rows)})")
         thr = red.get("seq_id_peptide_threshold")
         if thr is not None:
             ax_ps.axvline(thr * 100, color="#E53935", linewidth=1.2, linestyle="--",
@@ -391,6 +405,7 @@ def main():
     quality_rows    = _load(run_dir / "pool_quality.tsv",    "pool_quality.tsv")
     redundancy_rows = _load(run_dir / "pool_redundancy.tsv", "pool_redundancy.tsv")
     sample_rows     = _load(run_dir / "sample.tsv",          "sample.tsv")
+    sample_rows     = _attach_sequences(sample_rows)
 
     config_path = run_dir / "run_config.json"
     sampling_method = "unknown"

@@ -1,0 +1,557 @@
+"""
+02_optimize_benchmark.py — Systematic benchmark diversity optimization.
+
+Grid-searches over redundancy configs, sampling methods, feature dim combos,
+and sample sizes N to identify the most diverse default benchmark configuration.
+
+Outputs:
+  pepxpro_benchmark/optimization/results.tsv
+  pepxpro_benchmark/optimization/plots/diversity_vs_N.png
+
+Usage:
+  python 02_optimize_benchmark.py            # 2 example configs (demo)
+  python 02_optimize_benchmark.py --full     # all 27 configs
+"""
+
+import sys
+import math
+import time
+import csv
+import argparse
+from pathlib import Path
+
+_here      = Path(__file__).resolve().parent
+_root      = _here.parent
+_gensample = _root.parent / "genSample"
+_scrape_out = _root.parent / "scrape" / "outputs"
+sys.path.insert(0, str(_gensample))
+
+from modules.utils       import load_tsv, enrich_rows
+from modules.filters     import filter_single_chain
+from modules.sequence_redundancy   import (filter_receptor_redundancy,
+                                           filter_peptide_redundancy, PRESETS)
+from modules.structural_redundancy import filter_tm_score_receptor_matrix
+from modules.sampling    import run_sampling, DIM_KEYS
+
+# ---------------------------------------------------------------------------
+# Parameter space
+# ---------------------------------------------------------------------------
+
+N_VALUES = [50, 75, 100, 150, 200, 300, 500]
+
+METHODS = ["stratified", "kennard-stone", "kde", "cluster"]
+
+DIM_COMBOS = {
+    "D1": ["dg", "pep_len"],
+    "D2": ["dg", "pep_len", "rec_len", "n_contacts"],
+    "D3": ["dg", "pep_len", "pep_helix", "pep_coil", "rec_helix", "sasa_burial"],
+}
+
+# Methods that produce identical results regardless of dims beyond their effective
+# dimensionality — only run them with D1 to avoid redundant computation.
+SINGLE_DIM_METHODS = {"stratified", "kde"}
+
+SEED = 42
+
+# Fixed evaluation space for M1–M4 and M9 (always populated)
+EVAL_DIMS = ["dg", "pep_len", "rec_len"]
+EVAL_KEYS = [DIM_KEYS[d] for d in EVAL_DIMS]
+
+OUT_DIR   = _root / "optimization"
+PLOTS_DIR = OUT_DIR / "plots"
+
+EXAMPLE_CONFIGS = [
+    {"name": "strict_TM05", "rec": "strict", "pep": "strict", "tm": 0.5},
+    {"name": "medium_TM07", "rec": "medium", "pep": "medium", "tm": 0.7},
+]
+
+TM_THRESHOLDS = [0.5, 0.7, 0.9]
+
+METRIC_COLS = ["M1_mnnd", "M2_mpd", "M3_cov", "M4_cv_nnd",
+               "M5_pep_div", "M6_rec_div", "M7_tm_div", "M8_struct_cov",
+               "M9_wass", "M10_redund"]
+LOWER_IS_BETTER = {"M4_cv_nnd", "M9_wass", "M10_redund"}
+
+RESULT_COLS = (["config_name", "rec_preset", "pep_preset", "tm_threshold", "pool_size",
+                "method", "dims_id", "dims", "N"]
+               + METRIC_COLS + ["D_composite"])
+
+
+def all_configs():
+    return [
+        {"name": f"rec{rec}_pep{pep}_TM{tm}", "rec": rec, "pep": pep, "tm": tm}
+        for rec in ["strict", "medium", "lenient"]
+        for pep in ["strict", "medium", "lenient"]
+        for tm in TM_THRESHOLDS
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Pool building
+# ---------------------------------------------------------------------------
+
+def build_pool_redundancy(pool_quality, config):
+    rows = list(pool_quality)
+    rows, _ = filter_receptor_redundancy(rows, PRESETS[config["rec"]]["receptor"])
+    rows, _ = filter_peptide_redundancy(rows, PRESETS[config["pep"]]["peptide"])
+    result = filter_tm_score_receptor_matrix(rows, config["tm"])
+    return result if result is not None else rows
+
+
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+
+def _eval_scaled(sample_rows, pool_rows):
+    pool_v = [r for r in pool_rows   if all(r.get(k) is not None for k in EVAL_KEYS)]
+    samp_v = [r for r in sample_rows if all(r.get(k) is not None for k in EVAL_KEYS)]
+    if not pool_v:
+        return [], []
+    nd = len(EVAL_KEYS)
+    means = [sum(r[k] for r in pool_v) / len(pool_v) for k in EVAL_KEYS]
+    stds  = [max((sum((r[k] - means[i])**2 for r in pool_v) / len(pool_v))**0.5, 1e-8)
+             for i, k in enumerate(EVAL_KEYS)]
+    def normalize(rs):
+        return [tuple((r[k] - means[i]) / stds[i] for i, k in enumerate(EVAL_KEYS))
+                for r in rs if all(r.get(k) is not None for k in EVAL_KEYS)]
+    return normalize(pool_v), normalize(samp_v)
+
+
+def _d(a, b):
+    return math.sqrt(sum((a[i] - b[i])**2 for i in range(len(a))))
+
+
+def m1_mnnd(pts):
+    n = len(pts)
+    if n < 2: return 0.0
+    return sum(min(_d(pts[i], pts[j]) for j in range(n) if j != i) for i in range(n)) / n
+
+
+def m2_mpd(pts):
+    n = len(pts)
+    if n < 2: return 0.0
+    dists = [_d(pts[i], pts[j]) for i in range(n) for j in range(i+1, n)]
+    return sum(dists) / len(dists)
+
+
+def m3_coverage(sample_rows, pool_rows, n_bins=5):
+    pv = [r for r in pool_rows   if all(r.get(k) is not None for k in EVAL_KEYS)]
+    sv = [r for r in sample_rows if all(r.get(k) is not None for k in EVAL_KEYS)]
+    if not pv or not sv: return 0.0
+    ranges = [(min(r[k] for r in pv), max(r[k] for r in pv)) for k in EVAL_KEYS]
+    def cell(r):
+        return tuple(min(int((r[k] - lo) / max(hi - lo, 1e-8) * n_bins), n_bins-1)
+                     for k, (lo, hi) in zip(EVAL_KEYS, ranges))
+    pool_cells = {cell(r) for r in pv}
+    return len({cell(r) for r in sv} & pool_cells) / len(pool_cells)
+
+
+def m4_cv_nnd(pts):
+    n = len(pts)
+    if n < 3: return 1.0
+    nnds = [min(_d(pts[i], pts[j]) for j in range(n) if j != i) for i in range(n)]
+    mu = sum(nnds) / n
+    if mu == 0: return 1.0
+    return (sum((d - mu)**2 for d in nnds) / n)**0.5 / mu
+
+
+def _kmer(seq_a, seq_b, k):
+    if not seq_a or not seq_b: return 0.0
+    a = {seq_a[i:i+k] for i in range(max(1, len(seq_a)-k+1))}
+    b = {seq_b[i:i+k] for i in range(max(1, len(seq_b)-k+1))}
+    u = len(a | b)
+    return len(a & b) / u if u > 0 else 0.0
+
+
+def _biopython_identity(seq_a, seq_b, aligner):
+    if not seq_a or not seq_b: return 0.0
+    try:
+        aln = next(iter(aligner.align(seq_a, seq_b)))
+        aln_len = aln.shape[1]
+        n_match = sum(seq_a[i] == seq_b[j] for i, j in zip(*aln.indices) if i >= 0 and j >= 0)
+        return n_match / aln_len if aln_len > 0 else 0.0
+    except Exception:
+        return 0.0
+
+
+def _make_aligner():
+    from Bio.Align import PairwiseAligner, substitution_matrices
+    aln = PairwiseAligner()
+    aln.substitution_matrix = substitution_matrices.load("BLOSUM62")
+    aln.open_gap_score   = -10
+    aln.extend_gap_score = -0.5
+    aln.mode = "global"
+    return aln
+
+
+def m5_pep_div(sample_rows, aligner):
+    """1 - mean pairwise peptide identity (Biopython BLOSUM62, same as pipeline)."""
+    seqs = [r.get("peptide_seq", "") for r in sample_rows if r.get("peptide_seq")]
+    if len(seqs) < 2: return 0.0
+    ids = [_biopython_identity(seqs[i], seqs[j], aligner)
+           for i in range(len(seqs)) for j in range(i+1, len(seqs))]
+    return 1.0 - sum(ids) / len(ids)
+
+
+def _rec_seq(r):
+    raw = r.get("receptor_seq", "")
+    if not raw: return ""
+    if "|" in raw: return "".join(p.split(":",1)[1] for p in raw.split("|") if ":" in p)
+    return raw.split(":",1)[1] if ":" in raw else raw
+
+
+def m6_rec_div(sample_rows):
+    seqs = [_rec_seq(r) for r in sample_rows if _rec_seq(r)]
+    if len(seqs) < 2: return 0.0
+    sims = [_kmer(seqs[i], seqs[j], 5) for i in range(len(seqs)) for j in range(i+1, len(seqs))]
+    return 1.0 - sum(sims) / len(sims)
+
+
+def m7_tm_div(sample_rows, tm_mat, tm_idx):
+    if tm_mat is None: return None
+    import numpy as np
+    idx = [tm_idx[r["pdb_id"]] for r in sample_rows if r["pdb_id"] in tm_idx]
+    if len(idx) < 2: return None
+    sub = tm_mat[np.ix_(idx, idx)]
+    n   = len(idx)
+    vals = [float(sub[i, j]) for i in range(n) for j in range(i+1, n)]
+    return 1.0 - sum(vals) / len(vals)
+
+
+def _pool_clusters(pool_rows, tm_mat, tm_idx, threshold=0.5):
+    if tm_mat is None: return None
+    import numpy as np
+    pids = [r["pdb_id"] for r in pool_rows if r["pdb_id"] in tm_idx]
+    if not pids: return None
+    pidx = [tm_idx[p] for p in pids]
+    mat  = tm_mat[np.ix_(pidx, pidx)]
+    assigned, clusters = set(), []
+    for i, pid in enumerate(pids):
+        if pid in assigned: continue
+        cl = [pid]; assigned.add(pid)
+        for j, qid in enumerate(pids):
+            if qid not in assigned and mat[i, j] >= threshold:
+                cl.append(qid); assigned.add(qid)
+        clusters.append(cl)
+    return clusters
+
+
+def m8_struct_cov(sample_rows, pool_clusters):
+    if pool_clusters is None: return None
+    sids = {r["pdb_id"] for r in sample_rows}
+    covered = sum(1 for c in pool_clusters if any(p in sids for p in c))
+    return covered / len(pool_clusters)
+
+
+def m9_wasserstein(sample_rows, pool_rows):
+    from scipy.stats import wasserstein_distance
+    vals = []
+    for k in EVAL_KEYS:
+        pv = [r[k] for r in pool_rows   if r.get(k) is not None]
+        sv = [r[k] for r in sample_rows if r.get(k) is not None]
+        if not pv or not sv: continue
+        rng = max(pv) - min(pv)
+        vals.append(wasserstein_distance(pv, sv) / max(rng, 1e-8))
+    return sum(vals) / len(vals) if vals else 0.0
+
+
+def m10_redund(sample_rows, aligner, threshold=0.70):
+    """Fraction of sample peptide pairs with identity > threshold (Biopython BLOSUM62)."""
+    seqs = [r.get("peptide_seq", "") for r in sample_rows if r.get("peptide_seq")]
+    if len(seqs) < 2: return 0.0
+    pairs = sum(1 for i in range(len(seqs)) for j in range(i+1, len(seqs))
+                if _biopython_identity(seqs[i], seqs[j], aligner) > threshold)
+    total = len(seqs) * (len(seqs) - 1) // 2
+    return pairs / total
+
+
+def compute_metrics(sample, pool, pool_cl, tm_mat, tm_idx, aligner):
+    _, spts = _eval_scaled(sample, pool)
+    return {
+        "M1_mnnd":       m1_mnnd(spts),
+        "M2_mpd":        m2_mpd(spts),
+        "M3_cov":        m3_coverage(sample, pool),
+        "M4_cv_nnd":     m4_cv_nnd(spts),
+        "M5_pep_div":    m5_pep_div(sample, aligner),
+        "M6_rec_div":    m6_rec_div(sample),
+        "M7_tm_div":     m7_tm_div(sample, tm_mat, tm_idx),
+        "M8_struct_cov": m8_struct_cov(sample, pool_cl),
+        "M9_wass":       m9_wasserstein(sample, pool),
+        "M10_redund":    m10_redund(sample, aligner),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Composite score
+# ---------------------------------------------------------------------------
+
+def add_composite(results):
+    for m in METRIC_COLS:
+        vals = [r[m] for r in results if r.get(m) is not None]
+        if not vals: continue
+        lo, hi = min(vals), max(vals)
+        span = hi - lo if hi != lo else 1.0
+        for r in results:
+            v = r.get(m)
+            if v is None:
+                r[f"_n_{m}"] = None
+            else:
+                norm = (v - lo) / span
+                r[f"_n_{m}"] = (1.0 - norm) if m in LOWER_IS_BETTER else norm
+    for r in results:
+        norms = [r[f"_n_{m}"] for m in METRIC_COLS if r.get(f"_n_{m}") is not None]
+        r["D_composite"] = sum(norms) / len(norms) if norms else None
+
+
+# ---------------------------------------------------------------------------
+# Summary and elbow
+# ---------------------------------------------------------------------------
+
+def _elbow(ns, ds):
+    if len(ns) < 3: return None
+    nr = max(ns) - min(ns); dr = max(ds) - min(ds)
+    if nr == 0 or dr == 0: return None
+    xn = [(n - min(ns)) / nr for n in ns]
+    yn = [(d - min(ds)) / dr for d in ds]
+    return max(
+        ((abs(yn[i+1] - 2*yn[i] + yn[i-1]), ns[i]) for i in range(1, len(ns)-1)),
+        key=lambda x: x[0]
+    )[1]
+
+
+def print_summary(results, configs):
+    print(f"\n{'='*72}")
+    print("TOP 5 PER CONFIG  (by D_composite, best dims per N)")
+    print(f"{'='*72}")
+    for cfg in configs:
+        sub = [r for r in results if r["config_name"] == cfg["name"]
+               and r["D_composite"] is not None]
+        if not sub: continue
+        pool_n = sub[0]["pool_size"]
+        print(f"\n[{cfg['name']}]  pool={pool_n}")
+        print(f"  {'Method':<16} {'Dims':>4} {'N':>5}  {'D_comp':>6}  "
+              f"{'M1_mnnd':>7}  {'M5_pep':>6}  {'M7_tm':>6}")
+        for r in sorted(sub, key=lambda x: x["D_composite"], reverse=True)[:5]:
+            tm = f"{r['M7_tm_div']:.3f}" if r["M7_tm_div"] is not None else "  N/A"
+            print(f"  {r['method']:<16} {r['dims_id']:>4} {r['N']:>5}  "
+                  f"{r['D_composite']:.3f}   {r['M1_mnnd']:.3f}    "
+                  f"{r['M5_pep_div']:.3f}   {tm}")
+
+    print(f"\n{'='*72}")
+    print("ELBOW  (D_composite vs N — best dims per method)")
+    print(f"{'='*72}")
+    for cfg in configs:
+        for method in METHODS:
+            # Best dims per N
+            by_n = {}
+            for r in results:
+                if r["config_name"] != cfg["name"] or r["method"] != method: continue
+                if r["D_composite"] is None: continue
+                N = r["N"]
+                if N not in by_n or r["D_composite"] > by_n[N]["D_composite"]:
+                    by_n[N] = r
+            if len(by_n) < 3: continue
+            ns = sorted(by_n); ds = [by_n[n]["D_composite"] for n in ns]
+            e = _elbow(ns, ds)
+            if e:
+                print(f"  {cfg['name']:<22} {method:<16} → elbow N ≈ {e}")
+
+
+# ---------------------------------------------------------------------------
+# Plot
+# ---------------------------------------------------------------------------
+
+def plot_results(results, configs):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+
+    sns.set_theme(style="ticks", context="paper", font_scale=0.85,
+                  rc={"axes.spines.top": False, "axes.spines.right": False})
+
+    colors = {
+        "stratified":      "#2196F3",
+        "kennard-stone":   "#E91E63",
+        "kde":             "#4CAF50",
+        "cluster":         "#FF9800",
+    }
+
+    _abbr = {"recstrict": "RS", "recmedium": "RM", "reclenient": "RL",
+             "pepstrict": "PS", "pepmedium": "PM", "peplenient": "PL"}
+
+    def _short(name):
+        parts = name.split("_")
+        return " ".join(_abbr.get(p, p) for p in parts)
+
+    n_cfg = len(configs)
+    n_cols = 5
+    n_rows = math.ceil(n_cfg / n_cols)
+    fig, axes = plt.subplots(n_rows, n_cols,
+                             figsize=(4.2 * n_cols, 3.8 * n_rows),
+                             squeeze=False, constrained_layout=True)
+
+    for idx, cfg in enumerate(configs):
+        row, col = divmod(idx, n_cols)
+        ax = axes[row][col]
+        sub = [r for r in results if r["config_name"] == cfg["name"]
+               and r["D_composite"] is not None]
+        pool_n = int(float(str(sub[0]["pool_size"]))) if sub else "?"
+
+        for method in METHODS:
+            by_n = {}
+            for r in sub:
+                if r["method"] != method: continue
+                N = r["N"]
+                if N not in by_n or r["D_composite"] > by_n[N]["D_composite"]:
+                    by_n[N] = r
+            if not by_n: continue
+            ns = sorted(by_n)
+            ds = [by_n[n]["D_composite"] for n in ns]
+            ax.plot(ns, ds, "o-", color=colors[method], label=method,
+                    linewidth=1.5, markersize=4, alpha=0.85)
+
+        ax.set_title(f"{_short(cfg['name'])}\npool={pool_n}", fontsize=7.5,
+                     fontweight="bold", pad=3)
+        ax.set_xlabel("N", fontsize=7)
+        ax.set_ylabel("D_comp" if col == 0 else "", fontsize=7)
+        ax.tick_params(labelsize=6.5)
+        if idx == n_cfg - 1:
+            ax.legend(fontsize=6, loc="lower right", framealpha=0.7)
+        sns.despine(ax=ax)
+
+    # hide unused axes in last row
+    for empty in range(n_cfg, n_rows * n_cols):
+        r, c = divmod(empty, n_cols)
+        axes[r][c].set_visible(False)
+
+    fig.suptitle("D_composite vs N — best dims per method per config",
+                 fontsize=9, fontweight="bold")
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = PLOTS_DIR / "diversity_vs_N.png"
+    fig.savefig(out, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\nPlot → {out}")
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--full", action="store_true",
+                        help="Run all 27 redundancy configs instead of 2 examples.")
+    parser.add_argument("--plot-only", action="store_true",
+                        help="Skip grid search; regenerate plot from existing results.tsv.")
+    args = parser.parse_args()
+
+    configs = all_configs() if (args.full or args.plot_only) else EXAMPLE_CONFIGS
+
+    if args.plot_only:
+        results_path = OUT_DIR / "results.tsv"
+        if not results_path.exists():
+            print(f"ERROR: {results_path} not found — run without --plot-only first.")
+            sys.exit(1)
+        with open(results_path) as fh:
+            results = list(csv.DictReader(fh, delimiter="\t"))
+        for r in results:
+            for k in ("N", "pool_size"):
+                r[k] = int(r[k])
+            for k in RESULT_COLS:
+                if k not in ("config_name", "rec_preset", "pep_preset", "dims", "dims_id", "method"):
+                    try: r[k] = float(r[k]) if r[k] not in ("", "None") else None
+                    except: pass
+        plot_results(results, configs)
+        return
+
+    print("\nPepXPro benchmark optimization")
+    print("=" * 40)
+    rows = enrich_rows(load_tsv(_scrape_out / "summary_merged.tsv"))
+    print(f"Loaded:          {len(rows)} entries")
+    pool_quality = filter_single_chain(rows)
+    print(f"Single-chain:    {len(pool_quality)} entries\n")
+
+    # Biopython aligner — same config as sequence_redundancy.py
+    aligner = _make_aligner()
+    print("Biopython aligner ready (BLOSUM62 global)\n")
+
+    # Load TM matrix once
+    tm_mat, tm_idx = None, {}
+    if (_scrape_out / "tm_score_matrix.npz").exists():
+        import numpy as np
+        tm_idx = {pid: i for i, pid in
+                  enumerate((_scrape_out / "tm_score_ids.txt").read_text().splitlines())}
+        tm_mat = np.load(_scrape_out / "tm_score_matrix.npz")["matrix"]
+        print(f"TM matrix:       {len(tm_idx)} entries\n")
+
+    # Build redundancy pools
+    print(f"Building {len(configs)} pool(s)...")
+    pools, pool_cl = {}, {}
+    for cfg in configs:
+        print(f"\n  [{cfg['name']}]")
+        pool = build_pool_redundancy(pool_quality, cfg)
+        pools[cfg["name"]]   = pool
+        pool_cl[cfg["name"]] = _pool_clusters(pool, tm_mat, tm_idx)
+        print(f"  → pool: {len(pool)} entries")
+
+    # Grid search
+    def _active_combos(pool_size):
+        for method in METHODS:
+            dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(DIM_COMBOS)
+            for dims_id in dim_ids:
+                for N in N_VALUES:
+                    if N <= pool_size:
+                        yield method, dims_id, N
+
+    total = sum(1 for cfg in configs
+                for _ in _active_combos(len(pools[cfg["name"]])))
+    print(f"\nGrid search: {total} runs\n" + "-" * 60)
+
+    results, n_done = [], 0
+    for cfg in configs:
+        pool = pools[cfg["name"]]
+        pc   = pool_cl[cfg["name"]]
+        for method in METHODS:
+            dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(DIM_COMBOS)
+            for dims_id in dim_ids:
+                dims = DIM_COMBOS[dims_id]
+                eff_dims = [dims[0]] if method == "kde" else dims
+                for N in N_VALUES:
+                    if N > len(pool):
+                        continue
+                    t0 = time.time()
+                    try:
+                        sample = run_sampling(pool, N, method=method,
+                                             dims=eff_dims, seed=SEED)
+                    except Exception as e:
+                        print(f"  SKIP {cfg['name']} {method} {dims_id} N={N}: {e}")
+                        continue
+                    mets = compute_metrics(sample, pool, pc, tm_mat, tm_idx, aligner)
+                    n_done += 1
+                    row = {"config_name": cfg["name"], "rec_preset": cfg["rec"],
+                           "pep_preset": cfg["pep"], "tm_threshold": cfg["tm"],
+                           "pool_size": len(pool), "method": method,
+                           "dims_id": dims_id, "dims": "+".join(eff_dims), "N": N,
+                           "D_composite": None}
+                    row.update(mets)
+                    results.append(row)
+                    elapsed = time.time() - t0
+                    tm_str = f"{mets['M7_tm_div']:.3f}" if mets["M7_tm_div"] is not None else " N/A"
+                    print(f"  [{n_done:3d}/{total}] {cfg['name']:<22} {method:<16} "
+                          f"{dims_id} N={N:3d}  "
+                          f"M1={mets['M1_mnnd']:.3f}  M5={mets['M5_pep_div']:.3f}  "
+                          f"M7={tm_str}  ({elapsed:.1f}s)")
+
+    add_composite(results)
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    with open(OUT_DIR / "results.tsv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=RESULT_COLS, delimiter="\t", extrasaction="ignore")
+        w.writeheader(); w.writerows(results)
+    print(f"\nResults → {OUT_DIR / 'results.tsv'}  ({len(results)} rows)")
+
+    print_summary(results, configs)
+    plot_results(results, configs)
+
+
+if __name__ == "__main__":
+    main()

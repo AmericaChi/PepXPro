@@ -28,6 +28,7 @@ COL_LABELS = {
     "resolution":      "Resolution (Å)",
     "year":            "Deposition year",
     "_pep_len":        "Peptide length",
+    "_rec_len":        "Receptor length",
     "pep_sasa_burial": "Buried SASA",
     "n_contacts":      "Interface contacts",
     "n_hbonds":        "H-bond proxies",
@@ -200,6 +201,12 @@ def main():
                 r["_pep_len"] = str(int(val.split(":")[1]))
             except (ValueError, IndexError):
                 pass
+        val = r.get("receptor", "")
+        if ":" in val:
+            try:
+                r["_rec_len"] = str(int(val.split(":")[1]))
+            except (ValueError, IndexError):
+                pass
 
     numeric = parse_numeric_columns(rows)
     if not numeric:
@@ -246,25 +253,6 @@ def main():
             ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
         sns.despine(ax=ax)
 
-    def _grouped_num(ax, col_map, title, ylabel="residues"):
-        """Grouped boxplot + strip for two numeric columns on the same axis."""
-        frames = []
-        for lbl, col in col_map.items():
-            vals = numeric.get(col, [])
-            frames.append(pd.DataFrame({"val": vals, "type": lbl}))
-        df = pd.concat(frames, ignore_index=True)
-        sns.boxplot(data=df, x="type", y="val", ax=ax,
-                    palette="muted", linewidth=0.8, width=0.45, fliersize=0)
-        sns.stripplot(data=df, x="type", y="val", ax=ax,
-                      palette="muted", size=1.2, alpha=0.2, jitter=True)
-        ax.set_title(title, fontsize=8, fontweight="bold", pad=3)
-        ax.set_ylabel(ylabel, fontsize=7)
-        ax.set_xlabel("")
-        ax.tick_params(labelsize=7)
-        import matplotlib.ticker as ticker
-        ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True))
-        sns.despine(ax=ax)
-
     def _grouped_pct(ax, cols, title):
         """Grouped boxplot + strip for a set of pct columns (converted to %)."""
         ss_labels = [c.split("_pct_")[1] for c in cols]
@@ -284,7 +272,7 @@ def main():
         ax.set_ylim(-2, 102)
         sns.despine(ax=ax)
 
-    INTEGER_COLS = {"_pep_len"}
+    INTEGER_COLS = {"_pep_len", "_rec_len"}
 
     # Explicit panel order
     PANELS = [
@@ -294,8 +282,7 @@ def main():
         ("scalar",      "_pep_len"),
         ("pct",         PCT_PEP,   "Peptide SS (%)"),
         ("bar",         "_peptide_ss_class", SS_ORDER, SS_COLORS, "Peptide SS class"),
-        ("grouped_num", {"Peptide": "peptide_added", "Receptor": "receptor_added"},
-                        "Added residues"),
+        ("scalar",      "_rec_len"),
         ("pct",         PCT_REC,   "Receptor SS (%)"),
         ("bar",         "receptor_func_class", FUNC_ORDER, FUNC_COLORS, "Receptor function"),
         ("scalar",      "pep_sasa_burial"),
@@ -317,8 +304,6 @@ def main():
                 ax.set_visible(False)
         elif kind == "pct":
             _grouped_pct(ax, spec[1], spec[2])
-        elif kind == "grouped_num":
-            _grouped_num(ax, spec[1], spec[2])
         elif kind == "bar":
             _, col, order, colors, title = spec
             plot_bar(ax, order, count_categories(rows, col, order), colors, title)
