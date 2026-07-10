@@ -61,8 +61,8 @@ OUT_DIR   = _root / "optimization"
 PLOTS_DIR = OUT_DIR / "plots"
 
 EXAMPLE_CONFIGS = [
-    {"name": "strict_TM05", "rec": "strict", "pep": "strict", "tm": 0.5},
-    {"name": "medium_TM07", "rec": "medium", "pep": "medium", "tm": 0.7},
+    {"id": 1, "name": "strict_TM05", "rec": "strict", "pep": "strict", "tm": 0.5},
+    {"id": 2, "name": "medium_TM07", "rec": "medium", "pep": "medium", "tm": 0.7},
 ]
 
 TM_THRESHOLDS = [0.5, 0.7, 0.9]
@@ -72,17 +72,32 @@ METRIC_COLS = ["M1_mnnd", "M2_mpd", "M3_cov", "M4_cv_nnd",
                "M9_wass", "M10_redund"]
 LOWER_IS_BETTER = {"M4_cv_nnd", "M9_wass", "M10_redund"}
 
-RESULT_COLS = (["config_name", "rec_preset", "pep_preset", "tm_threshold", "pool_size",
-                "method", "dims_id", "dims", "N"]
+# Human-readable abbreviations for row labels, e.g. "RS-PS-TM0.5-StD1"
+REC_ABBR    = {"strict": "RS", "medium": "RM", "lenient": "RL"}
+PEP_ABBR    = {"strict": "PS", "medium": "PM", "lenient": "PL"}
+METHOD_ABBR = {"stratified": "St", "kennard-stone": "KS", "kde": "Kd", "cluster": "Cl"}
+
+
+def row_label(rec, pep, tm, method, dims_id):
+    """e.g. row_label('strict', 'strict', 0.5, 'stratified', 'D1') -> 'RS-PS-TM0.5-StD1'"""
+    return f"{REC_ABBR[rec]}-{PEP_ABBR[pep]}-TM{tm}-{METHOD_ABBR[method]}{dims_id}"
+
+
+RESULT_COLS = (["config_id", "row_id", "label", "config_name", "rec_preset", "pep_preset",
+                "tm_threshold", "pool_size", "method", "dims_id", "dims", "N"]
                + METRIC_COLS + ["D_composite"])
 
 
 def all_configs():
     return [
-        {"name": f"rec{rec}_pep{pep}_TM{tm}", "rec": rec, "pep": pep, "tm": tm}
-        for rec in ["strict", "medium", "lenient"]
-        for pep in ["strict", "medium", "lenient"]
-        for tm in TM_THRESHOLDS
+        {"id": i, "name": f"rec{rec}_pep{pep}_TM{tm}", "rec": rec, "pep": pep, "tm": tm}
+        for i, (rec, pep, tm) in enumerate(
+            ((rec, pep, tm)
+             for rec in ["strict", "medium", "lenient"]
+             for pep in ["strict", "medium", "lenient"]
+             for tm in TM_THRESHOLDS),
+            start=1,
+        )
     ]
 
 
@@ -328,7 +343,7 @@ def print_summary(results, configs):
                and r["D_composite"] is not None]
         if not sub: continue
         pool_n = sub[0]["pool_size"]
-        print(f"\n[{cfg['name']}]  pool={pool_n}")
+        print(f"\n[GC{cfg['id']}] {cfg['name']}  pool={pool_n}")
         print(f"  {'Method':<16} {'Dims':>4} {'N':>5}  {'D_comp':>6}  "
               f"{'M1_mnnd':>7}  {'M5_pep':>6}  {'M7_tm':>6}")
         for r in sorted(sub, key=lambda x: x["D_composite"], reverse=True)[:5]:
@@ -409,7 +424,7 @@ def plot_results(results, configs):
             ax.plot(ns, ds, "o-", color=colors[method], label=method,
                     linewidth=1.5, markersize=4, alpha=0.85)
 
-        ax.set_title(f"{_short(cfg['name'])}\npool={pool_n}", fontsize=7.5,
+        ax.set_title(f"GC{cfg['id']}  {_short(cfg['name'])}\npool={pool_n}", fontsize=7.5,
                      fontweight="bold", pad=3)
         ax.set_xlabel("N", fontsize=7)
         ax.set_ylabel("D_comp" if col == 0 else "", fontsize=7)
@@ -457,7 +472,8 @@ def main():
             for k in ("N", "pool_size"):
                 r[k] = int(r[k])
             for k in RESULT_COLS:
-                if k not in ("config_name", "rec_preset", "pep_preset", "dims", "dims_id", "method"):
+                if k not in ("row_id", "config_id", "label", "config_name", "rec_preset",
+                             "pep_preset", "dims", "dims_id", "method"):
                     try: r[k] = float(r[k]) if r[k] not in ("", "None") else None
                     except: pass
         plot_results(results, configs)
@@ -527,10 +543,13 @@ def main():
                         continue
                     mets = compute_metrics(sample, pool, pc, tm_mat, tm_idx, aligner)
                     n_done += 1
-                    row = {"config_name": cfg["name"], "rec_preset": cfg["rec"],
-                           "pep_preset": cfg["pep"], "tm_threshold": cfg["tm"],
-                           "pool_size": len(pool), "method": method,
-                           "dims_id": dims_id, "dims": "+".join(eff_dims), "N": N,
+                    row = {"config_id": f"GC{cfg['id']}", "row_id": f"R{n_done}",
+                           "label": row_label(cfg["rec"], cfg["pep"], cfg["tm"], method, dims_id),
+                           "config_name": cfg["name"],
+                           "rec_preset": cfg["rec"], "pep_preset": cfg["pep"],
+                           "tm_threshold": cfg["tm"], "pool_size": len(pool),
+                           "method": method, "dims_id": dims_id,
+                           "dims": "+".join(eff_dims), "N": N,
                            "D_composite": None}
                     row.update(mets)
                     results.append(row)

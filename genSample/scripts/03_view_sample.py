@@ -5,11 +5,12 @@ Chains are coloured with util.cbc.  Navigate with left/right arrow keys.
 Structures are shown in ΔG order (tightest binder first).
 
 Usage:
-  python 03_view_sample.py              # latest run
-  python 03_view_sample.py --run 3      # run_03/sample.tsv
+  python 03_view_sample.py                          # latest run
+  python 03_view_sample.py --run 3                   # run_03/sample.tsv
   python 03_view_sample.py --run 3 --cif-dir /path/to/cif
+  python 03_view_sample.py --run-dir ../../pepxpro_benchmark/v1   # any sample.tsv dir
 
-  CIF lookup order: run_XX/cif/  →  run_XX/pdb/  →  scrape/fixed_cif/
+  CIF lookup order: <run dir>/cif/  →  <run dir>/pdb/  →  scrape/fixed_cif/
   Override all with --cif-dir.
 """
 
@@ -131,11 +132,14 @@ def main():
     )
     parser.add_argument("--run", type=int, metavar="N",
                         help="Run number (default: latest run).")
+    parser.add_argument("--run-dir", metavar="PATH",
+                        help="Full path to any directory containing sample.tsv "
+                             "(e.g. a pepxpro_benchmark version). Overrides --run.")
     parser.add_argument("--cif-dir", metavar="DIR",
                         help="Override CIF directory.")
     args = parser.parse_args()
 
-    run_dir    = resolve_run_dir(args.run)
+    run_dir    = Path(args.run_dir) if args.run_dir else resolve_run_dir(args.run)
     sample_tsv = run_dir / "sample.tsv"
 
     if not run_dir.exists():

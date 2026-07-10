@@ -3,19 +3,28 @@
 
 Uses genSample modules directly.  No run_XX is created in genSample/outputs/.
 
+Benchmark versions are generated from named PROFILES, each corresponding to a
+grid configuration identified in pepxpro_benchmark/optimization/results.tsv
+(see reports/Draft/figure1_distributions.ipynb, Figures 5-6). Every profile
+uses its own elbow N (diminishing-returns benchmark size) and the method+dims
+combo that scored best for that grid config.
+
 Intended workflow:
   1. Explore and tune parameters with genSample/01_genSample.py
      (--dry-run, --sample, different --dims, etc.)
-  2. Once parameters are final, run this script for a reproducible release.
+  2. Run pepxpro_benchmark/scripts/02_optimize_benchmark.py --full to grid-search
+     redundancy configs and pick winners (see optimization/results.tsv).
+  3. Run this script once per winning profile for a reproducible release.
 
 Usage:
-  python 01_make_benchmark.py              # auto-increment version (v1, v2, ...)
-  python 01_make_benchmark.py --version v2 # explicit version label
-  python 01_make_benchmark.py --dry-run    # show pool size without writing files
+  python 01_make_benchmark.py --profile GC5            # -> v1
+  python 01_make_benchmark.py --profile GC11           # -> v2
+  python 01_make_benchmark.py --profile GC5 --dry-run  # show pool size only
 """
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from datetime import date
@@ -37,30 +46,56 @@ from modules.sampling import run_sampling, method_label
 from modules.export import write_sample, link_cifs, write_fasta
 
 
-# ── Benchmark parameters ─────────────────────────────────────────────────────
-# Edit these to define a new benchmark version.
+# ── Benchmark profiles ───────────────────────────────────────────────────────
+# One entry per grid config selected in the optimization (Figures 5-6):
+# rec/pep sequence-identity presets + TM-score cutoff, and the method/dims/N
+# that scored best (D_composite) for that config at its elbow N.
+#
+# D2 = ["dg", "pep_len", "rec_len", "n_contacts"]  (pepxpro_benchmark/optimization)
 
-SUMMARY_TSV     = _scrape_out / "summary_merged.tsv"
+SUMMARY_TSV = _scrape_out / "summary_merged.tsv"
 
-SAMPLE_N        = 89
-SEED            = 42
-SAMPLING_METHOD = "kennard-stone"
-DIMS            = ["dg", "ss_class", "func_class"]
+PROFILES = {
+    "GC5": {
+        "version":         "v1",
+        "seq_id_receptor": "strict",   # rec_preset — receptor 40% CD-HIT
+        "seq_id_peptide":  "medium",   # pep_preset — peptide 80% Biopython pairwise
+        "tm_score":        0.7,
+        "sampling_method": "kennard-stone",
+        "dims":            ["dg", "pep_len", "rec_len", "n_contacts"],  # D2
+        "sample_n":        75,         # elbow N for GC5
+        "seed":            42,
+    },
+    "GC11": {
+        "version":         "v2",
+        "seq_id_receptor": "medium",   # rec_preset — receptor 50% CD-HIT
+        "seq_id_peptide":  "strict",   # pep_preset — peptide 70% Biopython pairwise
+        "tm_score":        0.7,
+        "sampling_method": "kennard-stone",
+        "dims":            ["dg", "pep_len", "rec_len", "n_contacts"],  # D2
+        "sample_n":        100,        # elbow N for GC11
+        "seed":            42,
+    },
+}
 
-SINGLE_CHAIN    = True
-SEQ_ID_RECEPTOR = "strict"   # 40% CD-HIT
-SEQ_ID_PEPTIDE  = "strict"   # 70% Biopython pairwise
-TM_SCORE        = 0.8
-
-FULL_METADATA   = True
-EXPORT_FASTA    = True
+SINGLE_CHAIN  = True
+FULL_METADATA = True
+EXPORT_FASTA  = True
 
 POOL_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
-             "resolution", "peptide_ss_class", "receptor_func_class"]
+             "resolution", "peptide_ss_class", "receptor_func_class",
+             "peptide_pct_helix", "peptide_pct_beta", "peptide_pct_coil",
+             "receptor_pct_helix", "receptor_pct_beta", "receptor_pct_coil",
+             "n_contacts", "n_hbonds", "pep_sasa_burial"]
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _filter_args():
+def _invoked_command():
+    """The exact command line that produced this benchmark release, for reproducibility."""
+    return "python " + Path(sys.argv[0]).name + " " + shlex.join(sys.argv[1:])
+
+
+def _filter_args(profile):
     """Build a Namespace with all fields expected by genSample filter modules."""
     return argparse.Namespace(
         single_chain=SINGLE_CHAIN,
@@ -72,27 +107,20 @@ def _filter_args():
         binding_type="both",
         max_added=None,      max_receptor_added=None,
         exclude_nmr=False,   exclude=None,
-        seq_id_receptor=SEQ_ID_RECEPTOR, seq_id_receptor_threshold=None,
-        seq_id_peptide=SEQ_ID_PEPTIDE,   seq_id_peptide_threshold=None,
-        tm_score_receptor=TM_SCORE,
-        dims=DIMS,
+        seq_id_receptor=profile["seq_id_receptor"], seq_id_receptor_threshold=None,
+        seq_id_peptide=profile["seq_id_peptide"],   seq_id_peptide_threshold=None,
+        tm_score_receptor=profile["tm_score"],
+        dims=profile["dims"],
     )
-
-
-def next_version_dir():
-    for i in range(1, 1000):
-        d = _bench_root / f"v{i}"
-        if not d.exists():
-            return d
-    raise RuntimeError("No available version directory")
 
 
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
-def run_pipeline(version_dir, dry_run=False):
-    a = _filter_args()
+def run_pipeline(profile_name, version_dir, dry_run=False):
+    profile = PROFILES[profile_name]
+    a = _filter_args(profile)
 
     all_rows  = load_tsv(SUMMARY_TSV)
     full_cols = list(all_rows[0]) if all_rows else None
@@ -100,7 +128,7 @@ def run_pipeline(version_dir, dry_run=False):
     print(f"  Loaded {len(all_rows)} entries from {SUMMARY_TSV.name}")
 
     pool_quality    = apply_quality_filters(all_rows, a, _filtered)
-    pool_seq        = apply_redundancy_filters(pool_quality, a)
+    pool_seq, _     = apply_redundancy_filters(pool_quality, a)
     pool_redundancy = apply_structural_redundancy_filters(pool_seq, a, _fixed_cif)
 
     if dry_run:
@@ -114,11 +142,16 @@ def run_pipeline(version_dir, dry_run=False):
             print(f"  Rec length: {min(rec)} – {max(rec)} residues")
         return None
 
-    selected = run_sampling(pool_redundancy, SAMPLE_N,
-                            method=SAMPLING_METHOD, dims=DIMS, seed=SEED)
+    sampling_method = profile["sampling_method"]
+    dims            = profile["dims"]
+    sample_n        = profile["sample_n"]
+    seed            = profile["seed"]
+
+    selected = run_sampling(pool_redundancy, sample_n,
+                            method=sampling_method, dims=dims, seed=seed)
     selected.sort(key=lambda r: r["_dg"])
     print(f"  Sampled {len(selected)} of {len(pool_redundancy)} entries "
-          f"({method_label(SAMPLING_METHOD, DIMS)})")
+          f"({method_label(sampling_method, dims)})")
 
     version_dir.mkdir(parents=True, exist_ok=True)
 
@@ -130,16 +163,18 @@ def run_pipeline(version_dir, dry_run=False):
           f"pool_redundancy.tsv ({len(pool_redundancy)})")
 
     config = {
+        "profile":         profile_name,
+        "command":         _invoked_command(),
         "sample_size":     len(selected),
         "pool_size":       len(pool_redundancy),
-        "sampling_method": method_label(SAMPLING_METHOD, DIMS),
-        "dims":            DIMS,
-        "seed":            SEED,
+        "sampling_method": method_label(sampling_method, dims),
+        "dims":            dims,
+        "seed":            seed,
         "filters": {
             "single_chain":      SINGLE_CHAIN,
-            "seq_id_receptor":   SEQ_ID_RECEPTOR,
-            "seq_id_peptide":    SEQ_ID_PEPTIDE,
-            "tm_score_receptor": TM_SCORE,
+            "seq_id_receptor":   profile["seq_id_receptor"],
+            "seq_id_peptide":    profile["seq_id_peptide"],
+            "tm_score_receptor": profile["tm_score"],
         },
         "sources": {
             "summary_tsv":   str(SUMMARY_TSV),
@@ -225,19 +260,26 @@ def generate_plots(version_dir):
 # ---------------------------------------------------------------------------
 
 def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
+    from modules.sequence_redundancy import PRESETS
+
     with open(version_dir / "run_config.json") as f:
         config = json.load(f)
 
     n_cif = len(list((version_dir / "cif").glob("*.cif"))) if (version_dir / "cif").exists() else 0
 
+    filt = config["filters"]
+    rec_pct = PRESETS[filt["seq_id_receptor"]]["receptor"] * 100
+    pep_pct = PRESETS[filt["seq_id_peptide"]]["peptide"] * 100
+    tm      = filt["tm_score_receptor"]
+
     lines = [
-        f"PepXPro Benchmark — {version_dir.name}",
+        f"PepXPro Benchmark — {version_dir.name}  (profile {config['profile']})",
         "=" * 42,
         f"Generated : {date.today().isoformat()}",
         "",
         "CONTENTS",
         "--------",
-        f"sample.tsv                  {n_sample} entries, full metadata",
+        f"sample.tsv                  {n_sample} entries, full metadata (incl. external dataset fields)",
         f"cif/                        {n_cif} fixed CIFs (AMBER14-compatible)",
         f"pdb/                        {n_pdb} PDB conversions",
         "sequences/",
@@ -256,16 +298,21 @@ def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
         f"  Input:           {config['sources']['summary_tsv']}",
         f"  Quality pool:    {n_quality} entries  (--single-chain)",
         f"  Redundancy pool: {n_redundancy} entries  "
-        f"(seq receptor 40%, peptide 70%, TM-score 0.5)",
-        f"  Final sample:    {n_sample} entries  ({config['sampling_method']})",
+        f"(seq receptor {rec_pct:.0f}% [{filt['seq_id_receptor']}], "
+        f"peptide {pep_pct:.0f}% [{filt['seq_id_peptide']}], TM-score {tm})",
+        f"  Final sample:    {n_sample} entries  ({config['sampling_method']}, "
+        f"elbow N={config['sample_size']})",
         "",
         "SELECTION CRITERIA",
         "------------------",
         "Single receptor chain.",
-        "Sequence redundancy: receptor 40% CD-HIT, peptide 70% Biopython pairwise.",
-        "Structural redundancy: receptor TM-score < 0.5 (different fold).",
-        "Sampling: Kennard-Stone in dG x peptide-SS-class x receptor-function space.",
-        f"Source: PDBbind 2020 + PEPBI (summary_merged.tsv), seed={SEED}.",
+        f"Sequence redundancy: receptor {rec_pct:.0f}% CD-HIT ({filt['seq_id_receptor']}), "
+        f"peptide {pep_pct:.0f}% Biopython pairwise ({filt['seq_id_peptide']}).",
+        f"Structural redundancy: receptor TM-score < {tm} (different fold).",
+        f"Sampling: {config['sampling_method']} in {' x '.join(config['dims'])} space, "
+        f"N chosen at the D_composite-vs-N elbow for this grid config "
+        "(pepxpro_benchmark/optimization/results.tsv).",
+        f"Source: PDBbind 2020 + external dataset (summary_merged.tsv), seed={config['seed']}.",
         "",
         "PARAMETERS",
         "----------",
@@ -288,31 +335,34 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
+    parser.add_argument("--profile", choices=sorted(PROFILES), required=True,
+                        help="Named benchmark profile (grid config) to build.")
     parser.add_argument("--version", metavar="VX",
-                        help="Version label, e.g. v2 (default: auto-increment).")
+                        help="Version label override, e.g. v3 "
+                             "(default: the profile's fixed version, e.g. GC5 -> v1).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show filtered pool size without generating files.")
     args = parser.parse_args()
 
     if args.dry_run:
-        print("PepXPro Benchmark — dry run")
-        run_pipeline(None, dry_run=True)
+        print(f"PepXPro Benchmark — dry run (profile {args.profile})")
+        run_pipeline(args.profile, None, dry_run=True)
         return
 
-    if args.version:
-        version_dir = _bench_root / args.version
-        if version_dir.exists():
-            print(f"Error: {version_dir} already exists.")
-            sys.exit(1)
-    else:
-        version_dir = next_version_dir()
+    version_label = args.version or PROFILES[args.profile]["version"]
+    version_dir = _bench_root / version_label
+    if version_dir.exists():
+        print(f"Error: {version_dir} already exists.")
+        sys.exit(1)
 
     print(f"PepXPro Benchmark Builder")
+    print(f"  Profile : {args.profile}")
     print(f"  Version : {version_dir.name}")
     print(f"  Output  : {version_dir}")
+    print(f"  Command : {_invoked_command()}")
     print()
 
-    result = run_pipeline(version_dir)
+    result = run_pipeline(args.profile, version_dir)
     if result is None:
         sys.exit(1)
     config, n_quality, n_redundancy, n_sample = result

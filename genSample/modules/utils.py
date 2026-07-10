@@ -2,14 +2,21 @@ from pathlib import Path
 
 
 def load_tsv(path):
+    """Parse a tab-separated file into a list of dicts, one per row.
+
+    Uses rstrip("\\n") rather than strip() when splitting a line: a bare
+    strip() also eats trailing tabs on rows whose last column(s) are empty
+    (e.g. sparse/merged TSVs with optional trailing metadata), silently
+    dropping those columns from the resulting dict.
+    """
     path = Path(path)
     rows = []
     with open(path, encoding="ascii") as fh:
-        header = fh.readline().strip().split("\t")
+        header = fh.readline().rstrip("\n").split("\t")
         for line in fh:
             if not line.strip():
                 continue
-            rows.append(dict(zip(header, line.strip().split("\t"))))
+            rows.append(dict(zip(header, line.rstrip("\n").split("\t"))))
     return rows
 
 

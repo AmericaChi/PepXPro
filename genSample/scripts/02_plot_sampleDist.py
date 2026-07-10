@@ -51,11 +51,10 @@ DIM_LABEL = {
 
 # All numeric fields available from enrich_rows for PCA
 PCA_FIELDS = [
-    "_dg", "_pep_len", "_rec_len", "_n_rec_chains",
+    "_dg", "_pep_len", "_rec_len",
     "_pep_helix", "_pep_beta", "_pep_coil",
     "_rec_helix", "_rec_beta", "_rec_coil",
     "_n_contacts", "_n_hbonds", "_sasa_burial",
-    "_resolution", "_binding_kd",
 ]
 
 
@@ -283,8 +282,6 @@ def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
     fig, axes = plt.subplots(1, 4, figsize=(10.4, 2.8))
     ax_nn, ax_rs, ax_ps, ax_tm = axes
 
-    red = cfg.get("redundancy", {})
-
     # Panel 1: nearest-neighbor distance (feature space)
     nn_dists_s = _nearest_neighbor_dists(sample_rows)
     if nn_dists_s is not None:
@@ -307,10 +304,6 @@ def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
     if rec_ids_sample is not None:
         ax_rs.hist([v * 100 for v in rec_ids_sample], bins=20,
                    color=C_SAMPLE, alpha=0.9, label=f"sample ({len(sample_rows)})")
-        thr = red.get("seq_id_receptor_threshold")
-        if thr is not None:
-            ax_rs.axvline(thr * 100, color="#E53935", linewidth=1.2, linestyle="--",
-                          label=f"threshold {thr*100:.0f}%")
         ax_rs.legend(fontsize=6)
         ax_rs.set_xlabel("sequence identity (%)", fontsize=7)
         ax_rs.set_ylabel("count", fontsize=7)
@@ -327,10 +320,6 @@ def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
     if pep_ids_sample is not None:
         ax_ps.hist([v * 100 for v in pep_ids_sample], bins=20,
                    color=C_SAMPLE, alpha=0.9, label=f"sample ({len(sample_rows)})")
-        thr = red.get("seq_id_peptide_threshold")
-        if thr is not None:
-            ax_ps.axvline(thr * 100, color="#E53935", linewidth=1.2, linestyle="--",
-                          label=f"threshold {thr*100:.0f}%")
         ax_ps.legend(fontsize=6)
         ax_ps.set_xlabel("sequence identity (%)", fontsize=7)
         ax_ps.set_ylabel("count", fontsize=7)
@@ -346,11 +335,6 @@ def _plot_diversity(run_dir, sample_rows, quality_rows, cfg):
     tm_scores = _pairwise_tm_scores(sample_rows)
     if tm_scores is not None:
         ax_tm.hist(tm_scores, bins=20, color=C_SAMPLE, alpha=0.9)
-        thr = red.get("tm_score_receptor")
-        if thr is not None:
-            ax_tm.axvline(thr, color="#E53935", linewidth=1.2, linestyle="--",
-                          label=f"threshold {thr}")
-            ax_tm.legend(fontsize=6)
         ax_tm.set_xlabel("TM-score", fontsize=7)
         ax_tm.set_ylabel("count", fontsize=7)
         ax_tm.set_title(f"Receptor TM-score\n(sample pairs, n={len(sample_rows)})",
