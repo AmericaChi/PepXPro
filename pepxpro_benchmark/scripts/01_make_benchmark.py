@@ -56,24 +56,14 @@ from modules.export import write_sample, link_cifs, write_fasta
 SUMMARY_TSV = _scrape_out / "summary_merged.tsv"
 
 PROFILES = {
-    "GC5": {
+    "GC2": {
         "version":         "v1",
         "seq_id_receptor": "strict",   # rec_preset — receptor 40% CD-HIT
-        "seq_id_peptide":  "medium",   # pep_preset — peptide 80% Biopython pairwise
-        "tm_score":        0.7,
-        "sampling_method": "kennard-stone",
-        "dims":            ["dg", "pep_len", "rec_len", "n_contacts"],  # D2
-        "sample_n":        75,         # elbow N for GC5
-        "seed":            42,
-    },
-    "GC11": {
-        "version":         "v2",
-        "seq_id_receptor": "medium",   # rec_preset — receptor 50% CD-HIT
         "seq_id_peptide":  "strict",   # pep_preset — peptide 70% Biopython pairwise
         "tm_score":        0.7,
         "sampling_method": "kennard-stone",
         "dims":            ["dg", "pep_len", "rec_len", "n_contacts"],  # D2
-        "sample_n":        100,        # elbow N for GC11
+        "sample_n":        75,         # elbow N for GC2
         "seed":            42,
     },
 }

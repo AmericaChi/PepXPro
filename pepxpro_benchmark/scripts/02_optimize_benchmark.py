@@ -377,6 +377,7 @@ def print_summary(results, configs):
 # ---------------------------------------------------------------------------
 
 def plot_results(results, configs):
+    import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
     import seaborn as sns
 
@@ -384,11 +385,24 @@ def plot_results(results, configs):
                   rc={"axes.spines.top": False, "axes.spines.right": False})
 
     colors = {
-        "stratified":      "#2196F3",
-        "kennard-stone":   "#E91E63",
-        "kde":             "#4CAF50",
-        "cluster":         "#FF9800",
+        "stratified":      "#4CAF50",
+        "kennard-stone":   "#E53935",
+        "kde":             "#FDD835",
+        "cluster":         "#3F51B5",
     }
+    # More dims = stronger/darker tone of the method's base color.
+    dims_shade = {"D1": 0.4, "D2": 0.7, "D3": 1.0}
+    # For methods with more than one dims combo (KS, cluster), also vary dash
+    # length with dims: shorter dashes = fewer dims sampled, continuous = most.
+    # stratified/kde only ever run D1 and keep a plain solid trend line
+    # (no dims to contrast).
+    dims_linestyle = {"D1": (0, (1, 1)), "D2": (0, (4, 2)), "D3": "-"}
+    MULTI_DIM_METHODS = {"kennard-stone", "cluster"}
+
+    def _shaded(hex_color, dims_id):
+        factor = dims_shade.get(dims_id, 1.0)
+        rgb = mcolors.to_rgb(hex_color)
+        return tuple(1 - (1 - c) * factor for c in rgb)
 
     _abbr = {"recstrict": "RS", "recmedium": "RM", "reclenient": "RL",
              "pepstrict": "PS", "pepmedium": "PM", "peplenient": "PL"}
@@ -411,18 +425,21 @@ def plot_results(results, configs):
                and r["D_composite"] is not None]
         pool_n = int(float(str(sub[0]["pool_size"]))) if sub else "?"
 
+        handles = {}
         for method in METHODS:
-            by_n = {}
-            for r in sub:
-                if r["method"] != method: continue
-                N = r["N"]
-                if N not in by_n or r["D_composite"] > by_n[N]["D_composite"]:
-                    by_n[N] = r
-            if not by_n: continue
-            ns = sorted(by_n)
-            ds = [by_n[n]["D_composite"] for n in ns]
-            ax.plot(ns, ds, "o-", color=colors[method], label=method,
-                    linewidth=1.5, markersize=4, alpha=0.85)
+            dims_ids = sorted({r["dims_id"] for r in sub if r["method"] == method})
+            for dims_id in dims_ids:
+                pts = sorted((r["N"], r["D_composite"]) for r in sub
+                             if r["method"] == method and r["dims_id"] == dims_id)
+                if not pts:
+                    continue
+                ns = [p[0] for p in pts]
+                ds = [p[1] for p in pts]
+                ls = dims_linestyle.get(dims_id, "-") if method in MULTI_DIM_METHODS else "-"
+                line, = ax.plot(ns, ds, marker="o", linestyle=ls,
+                                 color=_shaded(colors[method], dims_id),
+                                 linewidth=1.3, markersize=3.5, alpha=0.9)
+                handles[f"{method} ({dims_id})"] = line
 
         ax.set_title(f"GC{cfg['id']}  {_short(cfg['name'])}\npool={pool_n}", fontsize=7.5,
                      fontweight="bold", pad=3)
@@ -430,7 +447,8 @@ def plot_results(results, configs):
         ax.set_ylabel("D_comp" if col == 0 else "", fontsize=7)
         ax.tick_params(labelsize=6.5)
         if idx == n_cfg - 1:
-            ax.legend(fontsize=6, loc="lower right", framealpha=0.7)
+            ax.legend(handles.values(), handles.keys(), fontsize=5, loc="lower right",
+                      framealpha=0.7, ncol=1)
         sns.despine(ax=ax)
 
     # hide unused axes in last row
