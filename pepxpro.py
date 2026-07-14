@@ -104,9 +104,7 @@ def run_config(_args):
     FILTER_PY = ROOT / "scrape/modules/filter.py"
     DL_PY     = ROOT / "scrape/modules/download.py"
     SR_PY     = ROOT / "genSample/modules/sequence_redundancy.py"
-    BENCH_PY  = ROOT / "pepxpro_benchmark/scripts/01_make_benchmark.py"
-
-    bench_script = ROOT / "pepxpro_benchmark/scripts/01_make_benchmark.py"
+    BENCH_PY  = ROOT / "pepxpro_benchmark/scripts/02_make_benchmark.py"
 
     W = 48  # column width for alignment
 
@@ -167,19 +165,23 @@ def run_config(_args):
     row("tm_score_receptor","",       "TM-score threshold  --tm-score-receptor F  (disabled by default)", "CLI")
 
     # ── benchmark ─────────────────────────────────────────────────────────────
-    section("benchmark / 01_make_benchmark.py  (edit file directly)")
+    section("benchmark / 02_make_benchmark.py  (frozen profiles, edit file directly)")
     if BENCH_PY.exists():
-        for var, label, note in [
-            ("SAMPLE_N",        "sample_n",        "number of entries to select"),
-            ("SEED",            "seed",             "random seed"),
-            ("SAMPLING_METHOD", "sampling_method",  "kennard-stone | stratified | kde | cluster"),
-            ("DIMS",            "dims",             "feature space for sampling"),
-            ("SINGLE_CHAIN",    "single_chain",     ""),
-            ("SEQ_ID_RECEPTOR", "seq_id_receptor",  ""),
-            ("SEQ_ID_PEPTIDE",  "seq_id_peptide",   ""),
-            ("TM_SCORE",        "tm_score",         ""),
-        ]:
-            row(label, _const(BENCH_PY, var), note, "hardcoded")
+        import importlib.util
+        spec     = importlib.util.spec_from_file_location("_bench_config_mod", BENCH_PY)
+        bench_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench_mod)
+        for name, profile in bench_mod.PROFILES.items():
+            row(f"PROFILES['{name}']", f"-> {profile['version']}", "frozen release", "hardcoded")
+            row("  seq_id_receptor",  profile["seq_id_receptor"], flag="hardcoded")
+            row("  seq_id_peptide",   profile["seq_id_peptide"],  flag="hardcoded")
+            row("  tm_score",         profile["tm_score"],        flag="hardcoded")
+            row("  sampling_method",  profile["sampling_method"], flag="hardcoded")
+            row("  dims",             "+".join(profile["dims"]),  flag="hardcoded")
+            row("  sample_n",         profile["sample_n"],        flag="hardcoded")
+            row("  seed",             profile["seed"],            flag="hardcoded")
+        print("  Also available: --from-config auto|GCn  (derives params live from "
+              "pepxpro_benchmark/optimization/results.tsv instead of a frozen profile)")
     else:
         print(f"  (script not found: {BENCH_PY})")
 

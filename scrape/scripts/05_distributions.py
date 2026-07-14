@@ -16,6 +16,7 @@ _root = _here.parent
 sys.path.insert(0, str(_root))
 
 from modules.utils import load_tsv, setup_logging
+from modules.metadata import classify_peptide_ss
 
 OUTPUTS_DIR = _root / "outputs"
 LOGS_DIR    = _root / "logs"
@@ -38,13 +39,15 @@ YLABEL_OVERRIDES = {
     "pep_sasa_burial": r"$f_\mathrm{buried}$",
 }
 
-SS_ORDER   = ["helix", "partial-helix", "beta", "mixed", "coil", "other", "NA"]
-FUNC_ORDER = ["enzyme", "chaperone", "structural", "signal",
-              "regulatory", "peptide-binding", "other", "NA"]
+SS_ORDER   = ["helix", "partial-helix", "beta", "partial-beta",
+              "mixed", "coil", "other", "NA"]
+FUNC_ORDER = ["immune", "enzyme", "chaperone", "transport", "structural",
+              "regulatory", "signal", "peptide-binding", "other"]
 
-SS_COLORS   = ["#EF5350", "#FF8A65", "#42A5F5", "#AB47BC", "#26A69A", "#78909C", "#BDBDBD"]
-FUNC_COLORS = ["#EF5350", "#FF7043", "#FFA726", "#FFCA28",
-               "#66BB6A", "#26C6DA", "#78909C", "#BDBDBD"]
+SS_COLORS   = ["#EF5350", "#FF8A65", "#42A5F5", "#90CAF9",
+               "#AB47BC", "#26A69A", "#78909C", "#BDBDBD"]
+FUNC_COLORS = ["#EC407A", "#EF5350", "#FF7043", "#FFA726", "#FFCA28",
+               "#66BB6A", "#26A69A", "#26C6DA", "#78909C"]
 
 
 def parse_numeric_columns(rows):
@@ -61,24 +64,6 @@ def parse_numeric_columns(rows):
         if len(vals) >= len(rows) * 0.5:
             numeric[col] = vals
     return numeric
-
-
-def classify_peptide_ss(pct_helix_str, pct_beta_str, pct_coil_str=""):
-    try:
-        h = float(pct_helix_str)
-        e = float(pct_beta_str)
-    except (ValueError, TypeError):
-        return "NA"
-    if h >= 0.70:               return "helix"
-    if e >= 0.50:               return "beta"
-    if h >= 0.20 and e >= 0.20: return "mixed"
-    if h >= 0.30:               return "partial-helix"
-    try:
-        c = float(pct_coil_str)
-    except (ValueError, TypeError):
-        c = 1.0 - h - e
-    if c > 0.50:                return "coil"
-    return "other"
 
 
 def count_categories(rows, col, order):

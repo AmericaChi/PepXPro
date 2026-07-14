@@ -1,6 +1,6 @@
 {
   "profile": "GC2",
-  "command": "python 01_make_benchmark.py --profile GC2",
+  "command": "python 02_make_benchmark.py --profile GC2",
   "sample_size": 75,
   "pool_size": 165,
   "sampling_method": "kennard-stone-4D",

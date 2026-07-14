@@ -40,9 +40,10 @@ def parse_peptide(peptide_str):
     return parts[0], int(parts[1])
 
 
-SS_CLASS_ORDER   = ["helix", "partial-helix", "beta", "mixed", "coil", "other"]
-FUNC_CLASS_ORDER = ["enzyme", "chaperone", "structural", "signal",
-                    "regulatory", "peptide-binding", "other"]
+SS_CLASS_ORDER   = ["helix", "partial-helix", "beta", "partial-beta",
+                    "mixed", "coil", "other"]
+FUNC_CLASS_ORDER = ["immune", "enzyme", "chaperone", "transport", "structural",
+                    "regulatory", "signal", "peptide-binding", "other"]
 
 def enrich_rows(rows):
     """Add _dg, _pep_len, _rec_len, _n_rec_chains, _resolution, _ss_class to each row."""

@@ -6,7 +6,10 @@ Functions:
   extract_full_sequence(cif_path, chain_id)          → 1-letter string (complete canonical)
   extract_resolution(cif_path)                       → '1.80' or 'NA'
   extract_ss_string(cif_path, chain_id, residue_ids) → per-residue 'CCCHHHHCCEE' or 'NA'
+  extract_receptor_entity(cif_path, receptor_seqs)   → (description, ec_number)
 """
+
+import re
 
 DSSP_3STATE = {
     'H': 'H', 'G': 'H', 'I': 'H',   # helix variants
@@ -161,40 +164,112 @@ def ss_percentages(ss_str):
 
 
 _FUNC_RULES = [
-    ("enzyme",          ["kinase", "phosphatase", "protease", "peptidase",
+    # Immune first: MHC/HLA/antibody chains are never annotated with an EC number and
+    # would otherwise be mis-caught by generic rules ("binding protein", "receptor").
+    ("immune",          ["histocompatibility antigen", "mhc class", "hla class",
+                         "h-2 class", "major histocompatibility", "antigen-presenting",
+                         "t-cell receptor", "t cell receptor", "tcr ",
+                         "beta-2-microglobulin", "beta-2 microglobulin",
+                         "immunoglobulin", "antibody", "fab ", "fab fragment",
+                         "fab' ", "nanobody", "tapasin"]),
+    ("enzyme",          ["kinase", "phosphatase", "protease", "peptidase", "proteinase",
                          "transferase", "synthase", "synthetase", "ligase", "lyase",
                          "isomerase", "oxidase", "reductase", "dehydrogenase",
-                         "hydrolase", "lipase", "nuclease", "methyltransferase",
-                         "acetyltransferase", " enzyme", "catalytic subunit"]),
-    ("chaperone",       ["chaperone", "heat shock protein", "heat shock cognate",
-                         "dnak", "groel", "groes", "trigger factor", "prefoldin"]),
+                         "hydrolase", "hydroxylase", "oxygenase", "lipase", "nuclease",
+                         "polymerase", "methyltransferase", "demethylase",
+                         "acetyltransferase", "deacetylase", "acetylase",
+                         "caspase", "trypsin", "chymotrypsin", "elastase", "thrombin",
+                         "subtilisin", "papain", "cathepsin", "calpain", "granzyme",
+                         "renin", "carboxylase", "decarboxylase", "esterase",
+                         "glycosylase", "topoisomerase", "helicase", "gyrase",
+                         "cyclase", "phosphorylase", "dismutase", "lactamase",
+                         "amidase", "deaminase", "aminotransferase", "racemase",
+                         "mutase", "epimerase", "ubiquitin-conjugating",
+                         "ubiquitin ligase", "e3 ubiquitin", "sumo ligase",
+                         " enzyme", "catalytic subunit"]),
+    ("chaperone",       ["chaperone", "chaperonin", "heat shock protein",
+                         "heat shock cognate", "hsp70", "hsp90",
+                         "dnak", "groel", "groes", "trigger factor", "prefoldin",
+                         "peptidyl-prolyl cis-trans isomerase", "calnexin",
+                         "calreticulin"]),
+    ("transport",       ["importin", "exportin", "karyopherin", "coatomer", "clathrin",
+                         "ap-2 complex", "ap-1 complex", "adaptor protein complex",
+                         "adapter-related protein complex",
+                         "vacuolar protein sorting", "escrt", "sorting nexin",
+                         "tumor susceptibility gene 101", "nuclear pore", "nucleoporin",
+                         "transport protein", "kinesin", "dynein", "snare", "syntaxin",
+                         "nuclear rna export"]),
     ("structural",      ["structural protein", "collagen", "actin", "tubulin",
                          "myosin", "keratin", "laminin", "fibronectin",
-                         "cytoskeletal"]),
-    ("signal",          ["signal transduction", "signaling protein", "gtpase",
-                         "g-protein", "g protein alpha", "ras protein", "rho protein",
-                         "growth factor receptor", "receptor tyrosine kinase"]),
+                         "cytoskeletal", "filamin", "spectrin", "radixin", "moesin",
+                         "ezrin", "capsid", "coat protein", "viral envelope",
+                         "titin", "vinculin", "talin", "desmoplakin", "plectin",
+                         "septin", "intermediate filament"]),
     ("regulatory",      ["transcription factor", "transcription activator",
                          "transcription repressor", "regulatory protein",
-                         "transcriptional regulator", "repressor protein",
-                         "tumor suppressor", "cyclin-dependent"]),
-    ("peptide-binding", ["binding protein", "pdz domain", "sh2 domain",
-                         "sh3 domain", "bromodomain", "chromodomain",
-                         "14-3-3 protein", "recognition module"]),
+                         "transcriptional regulator", "transcriptional coactivator",
+                         "transcriptional corepressor", "transcription elongation",
+                         "elongation regulator", "repressor protein",
+                         "tumor suppressor", "cyclin",
+                         "androgen receptor", "estrogen receptor", "oestrogen receptor",
+                         "glucocorticoid receptor", "retinoic acid receptor",
+                         "thyroid hormone receptor", "nuclear receptor",
+                         "peroxisome proliferator-activated receptor",
+                         "vitamin d receptor", "bile acid receptor",
+                         "b-cell lymphoma 6", "bcl-6", "mdm2", "mdm4",
+                         "retinoblastoma", "telomeric repeat-binding", "e2f",
+                         "histone", "chromatin", "nucleosome", "polycomb",
+                         "sin3", "steroid receptor coactivator", "splicing factor"]),
+    ("signal",          ["signal transduction", "signaling protein", "gtpase",
+                         "g-protein", "g protein", "ras protein", "rho protein",
+                         "growth factor receptor", "receptor tyrosine kinase",
+                         "g-protein coupled receptor", "g protein-coupled receptor",
+                         "calmodulin", "s100", "s-100 protein", "calcineurin",
+                         "arrestin", "guanine nucleotide", "chemotaxis protein",
+                         "response regulator", "substance-p receptor",
+                         "opioid receptor", "chemokine receptor",
+                         "adrenergic receptor", "muscarinic", "integrin",
+                         "troponin"]),
+    ("peptide-binding", ["binding protein", "pdz domain", "sh2 domain", "sh3 domain",
+                         "bromodomain", "chromodomain", "14-3-3", "recognition module",
+                         "wd repeat", "wd-repeat", "wd40", "disks large", "harmonin",
+                         "scribble", "syntenin", "nherf",
+                         "na(+)/h(+) exchange regulatory",
+                         "adaptor protein", "adaptor", "grb2", "scaffold",
+                         "ankyrin repeat", "tpr repeat", "tetratricopeptide",
+                         "leucine-rich repeat", "speckle-type poz", "spop",
+                         "kelch-like", "kelch", "f-box", "baculoviral iap repeat",
+                         "inhibitor of apoptosis", "bir domain", "ww domain",
+                         "eh domain", "ph domain", "sam domain", "mit domain",
+                         "uba domain", "ubiquitin-like", "ubiquitin receptor",
+                         "dynein light chain", "proliferating cell nuclear antigen",
+                         "sliding clamp", "dna polymerase iii subunit beta",
+                         "gephyrin", "streptavidin", "avidin", "profilin"]),
 ]
 
+_EC_RE = re.compile(r"^\d+\.\d+\.\d+\.[\d-]+$")
 
-def classify_receptor_function(description):
-    """Classify receptor into one of 7 functional classes based on PDB entity description.
 
-    Classes (priority order): enzyme, chaperone, structural, signal,
-    regulatory, peptide-binding, other.
-    Returns one of those strings, or 'NA' if description is empty.
+def classify_receptor_function(description, ec=None):
+    """Classify receptor into one of 8 functional classes from its PDB entity description.
+
+    Classes (priority order): immune, enzyme, chaperone, transport, structural,
+    regulatory, signal, peptide-binding, other.
+
+    An EC number (_entity.pdbx_ec) is authoritative for 'enzyme': it catches enzymes
+    named only by their proper name (trypsin, caspase-7, ...) that no generic keyword
+    would match. It is checked after the immune rule only because MHC/antibody chains
+    never carry one.
+
+    Entries with no usable description fall into 'other' (no separate 'NA' class).
     """
     if not description or description == "NA":
-        return "NA"
+        return "other"
     desc = description.lower()
+    ec_ok = bool(ec) and any(_EC_RE.match(e.strip()) for e in str(ec).split(";"))
     for cls, keywords in _FUNC_RULES:
+        if cls == "enzyme" and ec_ok:
+            return "enzyme"
         if any(kw in desc for kw in keywords):
             return cls
     return "other"
@@ -252,68 +327,123 @@ def fetch_resolution_rcsb(pdb_id):
     return "NA"
 
 
-def extract_receptor_description(cif_path, receptor_chain_ids):
-    """Return the PDB entity description for the first receptor chain.
+_ENTITY_MATCH_MIN = 0.8   # min identity to accept an entity as a receptor chain
 
-    Reads _entity.pdbx_description from the raw assembly CIF.
-    Returns description string or 'NA'.
+
+def extract_receptor_entity(cif_path, receptor_seqs):
+    """Return (description, ec_number) for the receptor entities of a complex.
+
+    Receptor entities are identified by matching their canonical sequence against the
+    receptor chain sequences, rather than by chain ID: PDB author chain IDs (H/L/P for
+    a Fab, for instance) do not survive the pipeline's chain renaming, so a chain-ID
+    lookup silently misses the entity and reports no description at all.
+
+    receptor_seqs: list of 1-letter receptor chain sequences (order irrelevant).
+    Multi-entity receptors yield all distinct descriptions, joined with '; '.
+    Returns ('NA', '') when no entity can be matched.
     """
     from Bio.PDB.MMCIF2Dict import MMCIF2Dict
     try:
         d = MMCIF2Dict(str(cif_path))
     except Exception:
-        return "NA"
+        return "NA", ""
 
-    auth_ids   = d.get("_atom_site.auth_asym_id",    [])
-    entity_ids = d.get("_atom_site.label_entity_id", [])
-    chain_to_entity = {}
-    for auth, eid in zip(auth_ids, entity_ids):
-        if auth not in chain_to_entity:
-            chain_to_entity[auth] = eid
-
-    ent_ids   = d.get("_entity.id",               [])
+    ent_ids   = d.get("_entity.id", [])
+    ent_types = d.get("_entity.type", [])
     ent_descs = d.get("_entity.pdbx_description", [])
-    eid_to_desc = dict(zip(ent_ids, ent_descs))
+    ent_ecs   = d.get("_entity.pdbx_ec", []) or ["?"] * len(ent_ids)
 
-    for chain_id in receptor_chain_ids:
-        eid = chain_to_entity.get(chain_id)
-        if eid and eid in eid_to_desc:
-            return eid_to_desc[eid]
-    return "NA"
+    entities = {
+        eid: {"desc": desc, "ec": ec, "seq": ""}
+        for eid, typ, desc, ec in zip(ent_ids, ent_types, ent_descs, ent_ecs)
+        if typ == "polymer"
+    }
+    if not entities:
+        return "NA", ""
+
+    seqs = {}
+    for eid, mon in zip(d.get("_entity_poly_seq.entity_id", []),
+                        d.get("_entity_poly_seq.mon_id", [])):
+        seqs.setdefault(eid, []).append(AA3_TO_1.get(mon, "X"))
+    for eid in entities:
+        entities[eid]["seq"] = "".join(seqs.get(eid, []))
+
+    matched = []
+    for rseq in receptor_seqs:
+        if not rseq:
+            continue
+        best, best_score = None, 0.0
+        for eid, ent in entities.items():
+            eseq = ent["seq"]
+            if not eseq:
+                continue
+            # PDBFixer may have filled gaps, so the pipeline sequence can differ in
+            # length from the deposited one: accept containment either way, else fall
+            # back to identity over the common prefix.
+            if eseq in rseq or rseq in eseq:
+                score = 1.0
+            else:
+                n = min(len(eseq), len(rseq))
+                score = (sum(a == b for a, b in zip(eseq[:n], rseq[:n])) / n) if n else 0.0
+            if score > best_score:
+                best, best_score = eid, score
+        if best is not None and best_score >= _ENTITY_MATCH_MIN and best not in matched:
+            matched.append(best)
+
+    descs, ecs = [], []
+    for eid in matched:
+        desc, ec = entities[eid]["desc"], entities[eid]["ec"]
+        if desc and desc not in descs:
+            descs.append(desc)
+        if ec and ec not in ("?", ".", "") and ec not in ecs:
+            ecs.append(ec)
+
+    return ("; ".join(descs) if descs else "NA"), ";".join(ecs)
+
+
+SS_MIXED_MIN = 0.20   # each of H/E must reach this to call a peptide mixed (HE)
+SS_MAJOR_MIN = 0.50   # H/E fraction at or above this is a full helix (H) / sheet (E)
 
 
 def classify_peptide_ss(pct_helix_str, pct_beta_str, pct_coil_str=""):
-    """Classify peptide secondary structure into 6 categories.
+    """Classify peptide secondary structure into 7 categories.
 
     Categories (priority order):
-      helix         pct_helix >= 0.70
-      beta          pct_beta  >= 0.50
-      mixed         pct_helix >= 0.20 AND pct_beta >= 0.20
-      partial-helix pct_helix >= 0.30
-      coil          pct_coil  >  0.50
-      other         none of the above (ambiguous partial structure)
+      coil          (C)   only coil residues: no helix and no strand
+      mixed         (HE)  pct_helix >= 0.20 AND pct_beta >= 0.20
+      helix         (H)   pct_helix >= 0.50, strand below the mixed floor
+      beta          (E)   pct_beta  >= 0.50, helix below the mixed floor
+      partial-helix (pH)  helix present but < 0.50, and helix-dominant
+      partial-beta  (pE)  strand present but < 0.50, and strand-dominant
+      other               none of the above
 
-    Returns one of: 'helix', 'partial-helix', 'beta', 'mixed', 'coil', 'other', 'NA'.
+    A trace of the opposite element (below the 20% mixed floor) does not disqualify a
+    peptide from H/pH/E/pE: it is treated as noise rather than as mixed character, so a
+    60% helix with a 7% strand bridge is still a helix. The partial classes break ties
+    by whichever element dominates, so a 5%-helix / 16%-strand peptide is partial-beta
+    rather than partial-helix.
+
+    Returns one of: 'helix', 'partial-helix', 'beta', 'partial-beta', 'mixed',
+    'coil', 'other', 'NA'.
     """
     try:
         h = float(pct_helix_str)
         e = float(pct_beta_str)
     except (ValueError, TypeError):
         return "NA"
-    if h >= 0.70:
-        return "helix"
-    if e >= 0.50:
-        return "beta"
-    if h >= 0.20 and e >= 0.20:
-        return "mixed"
-    if h >= 0.30:
-        return "partial-helix"
-    try:
-        c = float(pct_coil_str)
-    except (ValueError, TypeError):
-        c = 1.0 - h - e
-    if c > 0.50:
+
+    if h == 0 and e == 0:
         return "coil"
+    if h >= SS_MIXED_MIN and e >= SS_MIXED_MIN:
+        return "mixed"
+    if h >= SS_MAJOR_MIN and e < SS_MIXED_MIN:
+        return "helix"
+    if e >= SS_MAJOR_MIN and h < SS_MIXED_MIN:
+        return "beta"
+    if h > 0 and h >= e and e < SS_MIXED_MIN:
+        return "partial-helix"
+    if e > 0 and e > h and h < SS_MIXED_MIN:
+        return "partial-beta"
     return "other"
 
 

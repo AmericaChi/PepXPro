@@ -14,7 +14,10 @@ PepXPro is a modular framework for generating peptide–protein benchmark datase
 - `pepxpro_benchmark/`
   Curated benchmark releases. Scripts in `scripts/`, versioned outputs in `v1/`, `v2/`, etc.
   Uses genSample modules directly — no run_XX created in genSample/outputs/.
-  Workflow: tune parameters in genSample first, then run `python scripts/01_make_benchmark.py`.
+  Workflow: tune parameters in genSample first, run `python scripts/01_optimize_benchmark.py --full`
+  to grid-search redundancy/sampling configs (writes `optimization/results.tsv`), then
+  `python scripts/02_make_benchmark.py --from-config auto` (or `--from-config GCn` for a specific
+  grid config, or `--profile GC2` for a frozen citation-safe release) to generate the versioned release.
 
 - `manual/`
   Comprehensive user manual: `pepxpro_manual.txt`.
@@ -73,7 +76,8 @@ Uses Random Forest with 12 structural features (all from scrape pipeline).
 
 **Scenario A — same-model, varied test curation:** random 50/50 split; all strategies train
 on the same half; the other half is curated with each strategy to select N test entries.
-**Scenario B — partial-helix held out:** ~96 partial-helix entries as fixed test set;
+**Scenario B — partial-helix held out:** the partial-helix entries as fixed test set
+(74 after the 2026-07 SS reclassification; was ~96 under the old scheme);
 each strategy curates the remaining entries for training.
 
 **N_TEST (A):** 150, 75. **N_TRAIN (B):** 300, 150, 75.

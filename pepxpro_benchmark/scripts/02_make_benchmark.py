@@ -1,32 +1,47 @@
 """
-01_make_benchmark.py — Generate a versioned pepxpro_benchmark release.
+02_make_benchmark.py — Generate a versioned pepxpro_benchmark release.
 
 Uses genSample modules directly.  No run_XX is created in genSample/outputs/.
+Run 01_optimize_benchmark.py --full first — this script consumes its output
+(pepxpro_benchmark/optimization/results.tsv).
 
-Benchmark versions are generated from named PROFILES, each corresponding to a
-grid configuration identified in pepxpro_benchmark/optimization/results.tsv
-(see reports/Draft/figure1_distributions.ipynb, Figures 5-6). Every profile
-uses its own elbow N (diminishing-returns benchmark size) and the method+dims
-combo that scored best for that grid config.
+Two ways to pick a configuration:
 
-Intended workflow:
-  1. Explore and tune parameters with genSample/01_genSample.py
-     (--dry-run, --sample, different --dims, etc.)
-  2. Run pepxpro_benchmark/scripts/02_optimize_benchmark.py --full to grid-search
-     redundancy configs and pick winners (see optimization/results.tsv).
-  3. Run this script once per winning profile for a reproducible release.
+  --profile GC2          Frozen, citation-safe profile (see PROFILES below).
+                          Reproduces an exact past release regardless of what
+                          optimization/results.tsv currently contains. Once a
+                          --from-config release is adopted as official, its
+                          resolved parameters should be copied into PROFILES
+                          so it stays reproducible even if the grid search is
+                          re-run later with different data.
+
+  --from-config auto     Derive the configuration live from results.tsv,
+                          reproducing the Figure 5 winner-selection rule
+                          (elbow_N/pool_size < 0.6, ties broken toward
+                          stricter presets).
+  --from-config GC11     Target a specific grid config directly, regardless
+                          of whether it "wins" the comparison — e.g. to try
+                          an alternative to the adopted default.
+
+  In both --from-config modes, the method/dims/N for the chosen config are
+  picked automatically: the (method, dims) combo with the highest
+  D_composite at that config's own elbow N (falls back to the single
+  best-scoring row if the config has fewer than 3 tested N values).
 
 Usage:
-  python 01_make_benchmark.py --profile GC5            # -> v1
-  python 01_make_benchmark.py --profile GC11           # -> v2
-  python 01_make_benchmark.py --profile GC5 --dry-run  # show pool size only
+  python 02_make_benchmark.py --profile GC2                 # frozen v1 release
+  python 02_make_benchmark.py --from-config auto --version v1
+  python 02_make_benchmark.py --from-config GC11 --version v2
+  python 02_make_benchmark.py --profile GC2 --dry-run        # show pool size only
 """
 
 import argparse
+import csv
 import json
 import shlex
 import subprocess
 import sys
+from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
@@ -79,10 +94,154 @@ POOL_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
              "n_contacts", "n_hbonds", "pep_sasa_burial"]
 # ─────────────────────────────────────────────────────────────────────────────
 
+OPTIMIZATION_TSV = _bench_root / "optimization" / "results.tsv"
+STRICTNESS_RANK  = {"strict": 0, "medium": 1, "lenient": 2}
+
 
 def _invoked_command():
     """The exact command line that produced this benchmark release, for reproducibility."""
     return "python " + Path(sys.argv[0]).name + " " + shlex.join(sys.argv[1:])
+
+
+# ---------------------------------------------------------------------------
+# Config resolution from optimization/results.tsv (--from-config auto|GCn)
+# ---------------------------------------------------------------------------
+
+def _load_optimization_results():
+    if not OPTIMIZATION_TSV.exists():
+        return None
+    with open(OPTIMIZATION_TSV) as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    for r in rows:
+        r["N"] = int(r["N"])
+        r["pool_size"] = int(r["pool_size"])
+        r["tm_threshold"] = float(r["tm_threshold"])
+        d = r.get("D_composite")
+        r["D_composite"] = float(d) if d not in ("", "None", None) else None
+    return rows
+
+
+def _elbow(ns, ds):
+    """Point of maximum discrete curvature on (N, D_composite); needs >=3 points.
+
+    Same rule used in reports/Draft/figure1_distributions.ipynb (Figure 5) —
+    kept in sync manually since this script has no dependency on the notebook.
+    """
+    if len(ns) < 3:
+        return None
+    nr = max(ns) - min(ns); dr = max(ds) - min(ds)
+    if nr == 0 or dr == 0:
+        return None
+    xn = [(n - min(ns)) / nr for n in ns]
+    yn = [(d - min(ds)) / dr for d in ds]
+    return max(
+        ((abs(yn[i + 1] - 2 * yn[i] + yn[i - 1]), ns[i]) for i in range(1, len(ns) - 1)),
+        key=lambda x: x[0]
+    )[1]
+
+
+def _best_run_for_config(rows, config_id):
+    """Resolve one grid config to concrete build parameters: the (method, dims)
+    combo with the highest D_composite at that config's own elbow N (envelope
+    of best D_composite per N across all methods/dims). Falls back to the
+    single globally best-scoring row if fewer than 3 N values were tested."""
+    sub = [r for r in rows if r["config_id"] == config_id and r["D_composite"] is not None]
+    if not sub:
+        raise ValueError(f"No results found for {config_id} in {OPTIMIZATION_TSV}")
+
+    by_n = {}
+    for r in sub:
+        if r["N"] not in by_n or r["D_composite"] > by_n[r["N"]]["D_composite"]:
+            by_n[r["N"]] = r
+    ns = sorted(by_n)
+    elbow_n = _elbow(ns, [by_n[n]["D_composite"] for n in ns])
+    target = by_n[elbow_n] if elbow_n is not None else max(sub, key=lambda r: r["D_composite"])
+
+    return {
+        "rec_preset": target["rec_preset"], "pep_preset": target["pep_preset"],
+        "tm_threshold": target["tm_threshold"], "pool_size": target["pool_size"],
+        "sampling_method": target["method"], "dims": target["dims"].split("+"),
+        "sample_n": target["N"], "d_composite": target["D_composite"],
+        "elbow_n": elbow_n,
+    }
+
+
+def _select_winning_config(rows):
+    """Reproduce the Figure 5 winner-selection rule: among grid configs with a
+    computable elbow that lands before 60% of the pool is exhausted, pick the
+    highest mean D_composite, breaking ties toward stricter presets."""
+    by_cfg = defaultdict(list)
+    for r in rows:
+        if r["D_composite"] is not None:
+            by_cfg[r["config_id"]].append(r)
+
+    summary = []
+    for cfg_id, sub in by_cfg.items():
+        by_n = {}
+        for r in sub:
+            if r["N"] not in by_n or r["D_composite"] > by_n[r["N"]]["D_composite"]:
+                by_n[r["N"]] = r
+        ns = sorted(by_n)
+        elbow_n = _elbow(ns, [by_n[n]["D_composite"] for n in ns])
+        pool = sub[0]["pool_size"]
+        summary.append({
+            "config_id": cfg_id,
+            "rec_preset": sub[0]["rec_preset"], "pep_preset": sub[0]["pep_preset"],
+            "mean_d": sum(r["D_composite"] for r in sub) / len(sub),
+            "elbow_ratio": (elbow_n / pool) if elbow_n is not None else None,
+        })
+
+    qualified = [s for s in summary if s["elbow_ratio"] is not None and s["elbow_ratio"] < 0.6]
+    if not qualified:
+        raise ValueError("No grid config qualifies (elbow_ratio < 0.6) in results.tsv.")
+
+    qualified.sort(key=lambda s: (-s["mean_d"], STRICTNESS_RANK[s["rec_preset"]],
+                                   STRICTNESS_RANK[s["pep_preset"]]))
+    return qualified[0]["config_id"]
+
+
+def _resolve_profile(args):
+    """Returns (profile dict, profile_name, source) for either --profile or
+    --from-config. Does not resolve --version — main() does that, since dry
+    runs don't need a version directory."""
+    if args.profile:
+        profile = dict(PROFILES[args.profile])
+        if args.seed is not None:
+            profile["seed"] = args.seed
+        return profile, args.profile, "profile"
+
+    opt_rows = _load_optimization_results()
+    if opt_rows is None:
+        print(f"ERROR: {OPTIMIZATION_TSV} not found.")
+        print("  Run 01_optimize_benchmark.py --full first, or use --profile "
+              "for a frozen release that doesn't need it.")
+        sys.exit(1)
+
+    if args.from_config == "auto":
+        config_id = _select_winning_config(opt_rows)
+        source = "auto"
+    else:
+        config_id = args.from_config
+        source = "from-config"
+
+    best = _best_run_for_config(opt_rows, config_id)
+    elbow_note = f"elbow N={best['elbow_n']}" if best["elbow_n"] is not None else "no elbow — used best-scoring row"
+    print(f"  Resolved {config_id} from results.tsv: "
+          f"rec={best['rec_preset']} pep={best['pep_preset']} tm={best['tm_threshold']} "
+          f"| {best['sampling_method']} {'+'.join(best['dims'])} N={best['sample_n']} "
+          f"(D_composite={best['d_composite']:.3f}, {elbow_note}, pool={best['pool_size']})")
+
+    profile = {
+        "version":         None,
+        "seq_id_receptor": best["rec_preset"],
+        "seq_id_peptide":  best["pep_preset"],
+        "tm_score":        best["tm_threshold"],
+        "sampling_method": best["sampling_method"],
+        "dims":            best["dims"],
+        "sample_n":        best["sample_n"],
+        "seed":            args.seed if args.seed is not None else 42,
+    }
+    return profile, config_id, source
 
 
 def _filter_args(profile):
@@ -108,8 +267,7 @@ def _filter_args(profile):
 # Pipeline
 # ---------------------------------------------------------------------------
 
-def run_pipeline(profile_name, version_dir, dry_run=False):
-    profile = PROFILES[profile_name]
+def run_pipeline(profile_name, profile, source, version_dir, dry_run=False):
     a = _filter_args(profile)
 
     all_rows  = load_tsv(SUMMARY_TSV)
@@ -154,6 +312,7 @@ def run_pipeline(profile_name, version_dir, dry_run=False):
 
     config = {
         "profile":         profile_name,
+        "source":          source,   # "profile" (frozen) | "auto" | "from-config" (explicit GCn)
         "command":         _invoked_command(),
         "sample_size":     len(selected),
         "pool_size":       len(pool_redundancy),
@@ -325,34 +484,50 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--profile", choices=sorted(PROFILES), required=True,
-                        help="Named benchmark profile (grid config) to build.")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--profile", choices=sorted(PROFILES),
+                        help="Frozen, citation-safe benchmark profile (e.g. GC2 -> v1). "
+                             "Reproduces an exact past release regardless of the current "
+                             "optimization/results.tsv contents.")
+    group.add_argument("--from-config", metavar="auto|GCn",
+                        help="Derive redundancy/sampling parameters live from "
+                             "optimization/results.tsv. 'auto' reproduces the Figure 5 "
+                             "winner-selection rule; 'GCn' (e.g. GC11) targets that grid "
+                             "config directly, regardless of whether it 'wins'.")
     parser.add_argument("--version", metavar="VX",
-                        help="Version label override, e.g. v3 "
-                             "(default: the profile's fixed version, e.g. GC5 -> v1).")
+                        help="Version label, e.g. v3 (default for --profile: the profile's "
+                             "fixed version, e.g. GC2 -> v1; required for --from-config).")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Override the sampling seed (default: the profile's own seed, "
+                             "or 42 for --from-config).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show filtered pool size without generating files.")
     args = parser.parse_args()
 
+    profile, profile_name, source = _resolve_profile(args)
+
     if args.dry_run:
-        print(f"PepXPro Benchmark — dry run (profile {args.profile})")
-        run_pipeline(args.profile, None, dry_run=True)
+        print(f"PepXPro Benchmark — dry run ({profile_name}, source={source})")
+        run_pipeline(profile_name, profile, source, None, dry_run=True)
         return
 
-    version_label = args.version or PROFILES[args.profile]["version"]
+    version_label = args.version or profile.get("version")
+    if not version_label:
+        print("ERROR: --version is required when using --from-config.")
+        sys.exit(1)
     version_dir = _bench_root / version_label
     if version_dir.exists():
         print(f"Error: {version_dir} already exists.")
         sys.exit(1)
 
     print(f"PepXPro Benchmark Builder")
-    print(f"  Profile : {args.profile}")
+    print(f"  Config  : {profile_name}  (source={source})")
     print(f"  Version : {version_dir.name}")
     print(f"  Output  : {version_dir}")
     print(f"  Command : {_invoked_command()}")
     print()
 
-    result = run_pipeline(args.profile, version_dir)
+    result = run_pipeline(profile_name, profile, source, version_dir)
     if result is None:
         sys.exit(1)
     config, n_quality, n_redundancy, n_sample = result

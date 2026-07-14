@@ -193,12 +193,15 @@ python pepxpro.py scrape -v --external-input scrape/inputs/external/PEPBI.xlsx
 
 This creates `outputs/summary_merged.tsv`, which is used as the input for the versioned benchmark release.
 
-Then create the benchmark release:
+Then grid-search redundancy/sampling configurations for diversity, and generate the release:
 
 ```bash
 cd ../../pepxpro_benchmark/scripts
 
-python 01_make_benchmark.py
+python 01_optimize_benchmark.py --full           # writes optimization/results.tsv
+python 02_make_benchmark.py --profile GC2        # frozen v1 release (citation-safe)
+# or: python 02_make_benchmark.py --from-config auto --version v1     # re-derive the winner live
+# or: python 02_make_benchmark.py --from-config GC11 --version v2     # try a specific grid config
 ```
 
 ---
@@ -214,7 +217,7 @@ affect ΔG prediction quality using a Random Forest regressor on 12 structural f
 
 - **Scenario A — same-model, varied test curation:** random 50/50 split; all strategies train
   on the same half; the remaining half is curated with each strategy to select N test entries.
-- **Scenario B — partial-helix held out:** ~96 partial-helix entries form a fixed test set;
+- **Scenario B — partial-helix held out:** the partial-helix entries form a fixed test set (74);
   each strategy curates the remaining entries for training.
 
 **Six curation strategies per scenario:** Random, Seq-70%+KS 2D/4D/8D/12D, Seq-70%+Rec-40%+KS 12D.

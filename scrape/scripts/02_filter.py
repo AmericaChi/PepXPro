@@ -115,20 +115,23 @@ def _patch_row(pdb_id, cached):
     row = dict(cached)
 
     if not row.get("receptor_description") or not row.get("receptor_func_class"):
-        from modules.metadata import extract_receptor_description, classify_receptor_function
+        from modules.metadata import extract_receptor_entity, classify_receptor_function
         asm_num  = cached.get("assembly_num", "1") or "1"
         cif_path = PDB_CACHE / f"{pdb_id}-{asm_num}.cif"
         if not cif_path.exists():
             cif_path = PDB_CACHE / f"{pdb_id}-1.cif"
-        rec_chain_ids = [c.strip() for c in cached.get("receptor_chains", "").split(",")
-                         if c.strip()]
-        if cif_path.exists() and rec_chain_ids:
-            desc = extract_receptor_description(cif_path, rec_chain_ids)
+        # Match entities by sequence, not chain ID: the cached row stores the pipeline's
+        # renamed chains (A, B, ...), which no longer correspond to the CIF's author
+        # chain IDs (H/L/P for a Fab, etc.).
+        rec_seqs = [p.split(":", 1)[1] for p in cached.get("receptor_seq", "").split("|")
+                    if ":" in p]
+        if cif_path.exists() and rec_seqs:
+            desc, ec = extract_receptor_entity(cif_path, rec_seqs)
             row["receptor_description"] = desc
-            row["receptor_func_class"]  = classify_receptor_function(desc)
+            row["receptor_func_class"]  = classify_receptor_function(desc, ec)
         else:
             row.setdefault("receptor_description", "NA")
-            row.setdefault("receptor_func_class",  "NA")
+            row.setdefault("receptor_func_class",  "other")
 
     if not row.get("n_contacts") or not row.get("n_hbonds"):
         from modules.filter import compute_interface_contacts

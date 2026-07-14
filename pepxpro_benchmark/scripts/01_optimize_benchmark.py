@@ -1,16 +1,34 @@
 """
-02_optimize_benchmark.py — Systematic benchmark diversity optimization.
+01_optimize_benchmark.py — Systematic benchmark diversity optimization.
 
 Grid-searches over redundancy configs, sampling methods, feature dim combos,
 and sample sizes N to identify the most diverse default benchmark configuration.
+Run this first — 02_make_benchmark.py consumes its output (results.tsv) to
+build the actual versioned release.
 
 Outputs:
   pepxpro_benchmark/optimization/results.tsv
   pepxpro_benchmark/optimization/plots/diversity_vs_N.png
 
 Usage:
-  python 02_optimize_benchmark.py            # 2 example configs (demo)
-  python 02_optimize_benchmark.py --full     # all 27 configs
+  python 01_optimize_benchmark.py            # 2 example configs (demo)
+  python 01_optimize_benchmark.py --full     # all 27 configs
+
+The grid itself (sample sizes, sampling methods, feature-dimension combos,
+redundancy presets, TM-score cutoffs) and the input summary TSV can all be
+overridden from the command line without editing this file, e.g.:
+
+  python 01_optimize_benchmark.py --full \\
+      --summary-tsv my_summary.tsv \\
+      --n-values 50,100,200 \\
+      --methods stratified,kennard-stone \\
+      --tm-thresholds 0.5,0.9 \\
+      --rec-presets strict,medium \\
+      --pep-presets strict \\
+      --dims-combo dg,pep_len --dims-combo dg,pep_len,rec_len,n_contacts
+
+Omitted flags fall back to the defaults used for the PepXPro Benchmark v1
+optimization (see reports/Draft/figure1_distributions.ipynb, Figure 5).
 """
 
 import sys
@@ -88,17 +106,43 @@ RESULT_COLS = (["config_id", "row_id", "label", "config_name", "rec_preset", "pe
                + METRIC_COLS + ["D_composite"])
 
 
-def all_configs():
+def all_configs(rec_presets=("strict", "medium", "lenient"),
+                pep_presets=("strict", "medium", "lenient"),
+                tm_thresholds=TM_THRESHOLDS):
     return [
         {"id": i, "name": f"rec{rec}_pep{pep}_TM{tm}", "rec": rec, "pep": pep, "tm": tm}
         for i, (rec, pep, tm) in enumerate(
             ((rec, pep, tm)
-             for rec in ["strict", "medium", "lenient"]
-             for pep in ["strict", "medium", "lenient"]
-             for tm in TM_THRESHOLDS),
+             for rec in rec_presets
+             for pep in pep_presets
+             for tm in tm_thresholds),
             start=1,
         )
     ]
+
+
+# ---------------------------------------------------------------------------
+# CLI grid-parameter parsing
+# ---------------------------------------------------------------------------
+
+def _parse_str_list(s):
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+def _parse_int_list(s):
+    return [int(x) for x in _parse_str_list(s)]
+
+
+def _parse_float_list(s):
+    return [float(x) for x in _parse_str_list(s)]
+
+
+def _parse_dims_combos(combo_args):
+    """Build the {"D1": [...], "D2": [...], ...} dict from repeated --dims-combo
+    flags, or fall back to the built-in D1/D2/D3 combos if none were given."""
+    if not combo_args:
+        return dict(DIM_COMBOS)
+    return {f"D{i+1}": _parse_str_list(combo) for i, combo in enumerate(combo_args)}
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +488,7 @@ def plot_results(results, configs):
         ax.set_title(f"GC{cfg['id']}  {_short(cfg['name'])}\npool={pool_n}", fontsize=7.5,
                      fontweight="bold", pad=3)
         ax.set_xlabel("N", fontsize=7)
-        ax.set_ylabel("D_comp" if col == 0 else "", fontsize=7)
+        ax.set_ylabel(r"$D_{\mathrm{composite}}$" if col == 0 else "", fontsize=7)
         ax.tick_params(labelsize=6.5)
         if idx == n_cfg - 1:
             ax.legend(handles.values(), handles.keys(), fontsize=5, loc="lower right",
@@ -456,7 +500,7 @@ def plot_results(results, configs):
         r, c = divmod(empty, n_cols)
         axes[r][c].set_visible(False)
 
-    fig.suptitle("D_composite vs N — best dims per method per config",
+    fig.suptitle(r"$D_{\mathrm{composite}}$ vs N — best dims per method per config",
                  fontsize=9, fontweight="bold")
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     out = PLOTS_DIR / "diversity_vs_N.png"
@@ -470,14 +514,47 @@ def plot_results(results, configs):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description="Grid-search benchmark redundancy/sampling configurations "
+                     "for diversity (D_composite).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
     parser.add_argument("--full", action="store_true",
-                        help="Run all 27 redundancy configs instead of 2 examples.")
+                        help="Run the full redundancy-config grid instead of 2 examples.")
     parser.add_argument("--plot-only", action="store_true",
                         help="Skip grid search; regenerate plot from existing results.tsv.")
+    parser.add_argument("--summary-tsv", metavar="PATH", default="summary_merged.tsv",
+                        help="Input summary TSV (default: summary_merged.tsv). Relative "
+                             "paths are resolved against scrape/outputs/.")
+    parser.add_argument("--n-values", metavar="N1,N2,...", default="50,75,100,150,200,300,500",
+                        help="Comma-separated sample sizes N to grid-search.")
+    parser.add_argument("--methods", metavar="M1,M2,...",
+                        default="stratified,kennard-stone,kde,cluster",
+                        help="Comma-separated sampling methods (subset of: "
+                             "stratified, kennard-stone, kde, cluster).")
+    parser.add_argument("--dims-combo", metavar="DIM1,DIM2,...", action="append",
+                        help="Feature-dimension combo, e.g. 'dg,pep_len'. Repeat for "
+                             "multiple combos (labeled D1, D2, ... in the order given). "
+                             "Default: the built-in D1/D2/D3 combos.")
+    parser.add_argument("--tm-thresholds", metavar="T1,T2,...", default="0.5,0.7,0.9",
+                        help="Comma-separated receptor TM-score cutoffs.")
+    parser.add_argument("--rec-presets", metavar="P1,P2,...", default="strict,medium,lenient",
+                        help="Comma-separated receptor sequence-identity presets.")
+    parser.add_argument("--pep-presets", metavar="P1,P2,...", default="strict,medium,lenient",
+                        help="Comma-separated peptide sequence-identity presets.")
     args = parser.parse_args()
 
-    configs = all_configs() if (args.full or args.plot_only) else EXAMPLE_CONFIGS
+    n_values    = _parse_int_list(args.n_values)
+    methods     = _parse_str_list(args.methods)
+    dim_combos  = _parse_dims_combos(args.dims_combo)
+    tm_thresh   = _parse_float_list(args.tm_thresholds)
+    rec_presets = _parse_str_list(args.rec_presets)
+    pep_presets = _parse_str_list(args.pep_presets)
+
+    summary_path = Path(args.summary_tsv)
+    if not summary_path.is_absolute():
+        summary_path = _scrape_out / summary_path
 
     if args.plot_only:
         results_path = OUT_DIR / "results.tsv"
@@ -494,13 +571,26 @@ def main():
                              "pep_preset", "dims", "dims_id", "method"):
                     try: r[k] = float(r[k]) if r[k] not in ("", "None") else None
                     except: pass
+        # Configs are derived from whatever grid actually produced results.tsv,
+        # rather than re-run through all_configs(), so --plot-only stays correct
+        # even after a custom (non-default) grid search.
+        seen = {}
+        for r in results:
+            cid = r["config_id"]
+            if cid not in seen:
+                seen[cid] = {"id": int(cid[2:]), "name": r["config_name"],
+                             "rec": r["rec_preset"], "pep": r["pep_preset"],
+                             "tm": r["tm_threshold"]}
+        configs = sorted(seen.values(), key=lambda c: c["id"])
         plot_results(results, configs)
         return
 
+    configs = all_configs(rec_presets, pep_presets, tm_thresh) if args.full else EXAMPLE_CONFIGS
+
     print("\nPepXPro benchmark optimization")
     print("=" * 40)
-    rows = enrich_rows(load_tsv(_scrape_out / "summary_merged.tsv"))
-    print(f"Loaded:          {len(rows)} entries")
+    rows = enrich_rows(load_tsv(summary_path))
+    print(f"Loaded:          {len(rows)} entries  (from {summary_path.name})")
     pool_quality = filter_single_chain(rows)
     print(f"Single-chain:    {len(pool_quality)} entries\n")
 
@@ -529,10 +619,10 @@ def main():
 
     # Grid search
     def _active_combos(pool_size):
-        for method in METHODS:
-            dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(DIM_COMBOS)
+        for method in methods:
+            dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(dim_combos)
             for dims_id in dim_ids:
-                for N in N_VALUES:
+                for N in n_values:
                     if N <= pool_size:
                         yield method, dims_id, N
 
@@ -544,12 +634,12 @@ def main():
     for cfg in configs:
         pool = pools[cfg["name"]]
         pc   = pool_cl[cfg["name"]]
-        for method in METHODS:
-            dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(DIM_COMBOS)
+        for method in methods:
+            dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(dim_combos)
             for dims_id in dim_ids:
-                dims = DIM_COMBOS[dims_id]
+                dims = dim_combos[dims_id]
                 eff_dims = [dims[0]] if method == "kde" else dims
-                for N in N_VALUES:
+                for N in n_values:
                     if N > len(pool):
                         continue
                     t0 = time.time()

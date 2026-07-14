@@ -316,13 +316,21 @@ No run_XX is created in genSample/outputs/.
 
 Intended workflow:
   1. Tune parameters using genSample/01_genSample.py (--dry-run, --sample)
-  2. Once parameters are final, run the benchmark script for a reproducible release.
+  2. Grid-search redundancy/sampling configs for diversity (01_optimize_benchmark.py).
+  3. Generate the release from the winning (or a chosen) grid config (02_make_benchmark.py).
 
   conda activate pepxpro
   cd pepxpro_benchmark/scripts
-  python 01_make_benchmark.py              # creates pepxpro_benchmark/v1/
-  python 01_make_benchmark.py --dry-run    # pool stats only, nothing written
-  python 01_make_benchmark.py --version v2 # explicit version label
+
+  python 01_optimize_benchmark.py --full
+      # writes optimization/results.tsv + optimization/plots/diversity_vs_N.png
+      # (grid is CLI-configurable: --n-values, --methods, --dims-combo,
+      #  --tm-thresholds, --rec-presets, --pep-presets, --summary-tsv)
+
+  python 02_make_benchmark.py --profile GC2                  # frozen v1 release
+  python 02_make_benchmark.py --from-config auto --version v1   # re-derive the winner live
+  python 02_make_benchmark.py --from-config GC11 --version v2   # try a specific grid config
+  python 02_make_benchmark.py --profile GC2 --dry-run        # pool stats only, nothing written
 
 OUTPUT (pepxpro_benchmark/vN/)
 ------------------------------
@@ -341,24 +349,24 @@ plots/
   run_comparison_dg_func_class.png   Filtering pipeline: dG × functional class.
 README.txt                 Provenance, pipeline counts, selection criteria.
 
-BENCHMARK PARAMETERS (edit BENCHMARK_PARAMS in 01_make_benchmark.py)
+BENCHMARK PARAMETERS (edit PROFILES in 02_make_benchmark.py to freeze a new one)
 ---------------------------------------------------------------------
-Current v1 configuration:
-  --sample 89  --single-chain
-  --seq-id-receptor strict (40%)  --seq-id-peptide strict (70%)
-  --tm-score-receptor 0.5
-  --sampling kennard-stone  --dims dg ss_class func_class
-  --summary-tsv summary_merged.tsv  --seed 42
+Current v1 configuration (PROFILES["GC2"]):
+  --single-chain
+  seq_id_receptor strict (CD-HIT 40%)   seq_id_peptide strict (Biopython pairwise 70%)
+  tm_score 0.7
+  sampling_method kennard-stone   dims dg+pep_len+rec_len+n_contacts   sample_n 75
+  summary_tsv summary_merged.tsv   seed 42
+
+Also see: `python pepxpro.py config --print` prints every PROFILES entry, and
+`python 02_make_benchmark.py --from-config auto` re-derives the current winner
+live from optimization/results.tsv instead of a frozen profile.
 
 VISUALIZING A BENCHMARK VERSION
 ---------------------------------
-Use 03_view_sample.py from genSample with --cif-dir pointing to the benchmark:
+Use 03_view_sample.py from genSample with --run-dir pointing to the benchmark:
   cd genSample/scripts
-  python 03_view_sample.py --run-dir ../../pepxpro_benchmark/v1 --cif-dir cif
-
-(03_view_sample.py does not yet support --run-dir; use --cif-dir with any run
-that shares the same sample.tsv, or run genSample once with --link-cifs
-pointing to the same sample.)
+  python 03_view_sample.py --run-dir ../../pepxpro_benchmark/v1
 
 
 ===========================================================================
@@ -372,8 +380,15 @@ NOTES
 - --protonate does not strip existing hydrogens; fills missing ones only.
 - SS annotations: peptide_ss/_receptor_ss from deposited _struct_conf (may be NA for NMR);
   peptide_ss_dssp/receptor_ss_dssp from mkdssp (covers all experimental methods).
-- peptide_ss_class values: helix (≥70% H), beta (≥50% E), mixed (≥20% H and ≥20% E),
-  partial-helix (≥30% H), coil (>50% C), other (ambiguous partial), NA.
+- peptide_ss_class values (priority order): coil (no H and no E), mixed (≥20% H and ≥20% E),
+  helix (≥50% H), beta (≥50% E), partial-helix (H present, <50%, H-dominant),
+  partial-beta (E present, <50%, E-dominant), other, NA.
+  A trace of the opposite element below the 20% mixed floor counts as noise, not as
+  mixed character (60% H with a 7% β-bridge is still helix).
+- receptor_func_class values: immune, enzyme, chaperone, transport, structural,
+  regulatory, signal, peptide-binding, other. An EC number in the CIF
+  (_entity.pdbx_ec) is authoritative for enzyme; entries with no usable receptor
+  description fall into other (there is no separate NA class).
 - DSSP requires mkdssp binary and CCD dictionary files in:
     $CONDA_PREFIX/var/cache/libcifpp/
   (components.cif, mmcif_pdbx.dic, mmcif_ma.dic — downloaded once at setup)

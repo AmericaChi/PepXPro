@@ -22,7 +22,7 @@ from .metadata import (
     extract_resolution,
     extract_ss_string,
     extract_ss_dssp_chain,
-    extract_receptor_description,
+    extract_receptor_entity,
     classify_receptor_function,
 )
 
@@ -739,8 +739,9 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir, convert_mse=True, strip_
         f"{cid}:{extract_ss_dssp_chain(fixed_cif_path, cid)}" for cid in rec_ids
     )
 
-    rec_description = extract_receptor_description(cif_path, receptor_chain_ids)
-    rec_func_class  = classify_receptor_function(rec_description)
+    rec_description, rec_ec = extract_receptor_entity(cif_path,
+                                                      list(receptor_seq_raw.values()))
+    rec_func_class  = classify_receptor_function(rec_description, rec_ec)
 
     # --- Interface contacts, H-bond proxies, and SASA burial (from fixed CIF) ---
     n_contacts, n_hbonds = compute_interface_contacts(fixed_cif_path, pep_id, rec_ids)
