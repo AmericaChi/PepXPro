@@ -16,17 +16,17 @@ Two ways to pick a configuration:
                           re-run later with different data.
 
   --from-config auto     Derive the configuration live from results.tsv,
-                          reproducing the Figure 5 winner-selection rule
-                          (elbow_N/pool_size < 0.6, ties broken toward
-                          stricter presets).
+                          reproducing the Figure 5 winner-selection rule:
+                          highest mean D_composite across all grid rows for
+                          that config (N spans 0.25-0.75 of that config's own
+                          pool), ties broken toward stricter presets.
   --from-config GC11     Target a specific grid config directly, regardless
                           of whether it "wins" the comparison — e.g. to try
                           an alternative to the adopted default.
 
   In both --from-config modes, the method/dims/N for the chosen config are
-  picked automatically: the (method, dims) combo with the highest
-  D_composite at that config's own elbow N (falls back to the single
-  best-scoring row if the config has fewer than 3 tested N values).
+  picked automatically: the single (method, dims, N) row with the highest
+  D_composite among all rows tested for that config.
 
 Usage:
   python 02_make_benchmark.py --profile GC2                 # frozen v1 release
@@ -64,7 +64,7 @@ from modules.export import write_sample, link_cifs, write_fasta
 # ── Benchmark profiles ───────────────────────────────────────────────────────
 # One entry per grid config selected in the optimization (Figures 5-6):
 # rec/pep sequence-identity presets + TM-score cutoff, and the method/dims/N
-# that scored best (D_composite) for that config at its elbow N.
+# that scored best (D_composite) for that config.
 #
 # D2 = ["dg", "pep_len", "rec_len", "n_contacts"]  (pepxpro_benchmark/optimization)
 
@@ -78,7 +78,10 @@ PROFILES = {
         "tm_score":        0.7,
         "sampling_method": "kennard-stone",
         "dims":            ["dg", "pep_len", "rec_len", "n_contacts"],  # D2
-        "sample_n":        75,         # elbow N for GC2
+        "sample_n":        75,         # N=75, selected under the original elbow-based
+                                        # rule used for the published v1 release (kept
+                                        # frozen here for citation-safety even though
+                                        # the live --from-config auto rule has changed)
         "seed":            42,
     },
 }
@@ -121,55 +124,29 @@ def _load_optimization_results():
     return rows
 
 
-def _elbow(ns, ds):
-    """Point of maximum discrete curvature on (N, D_composite); needs >=3 points.
-
-    Same rule used in reports/Draft/figure1_distributions.ipynb (Figure 5) —
-    kept in sync manually since this script has no dependency on the notebook.
-    """
-    if len(ns) < 3:
-        return None
-    nr = max(ns) - min(ns); dr = max(ds) - min(ds)
-    if nr == 0 or dr == 0:
-        return None
-    xn = [(n - min(ns)) / nr for n in ns]
-    yn = [(d - min(ds)) / dr for d in ds]
-    return max(
-        ((abs(yn[i + 1] - 2 * yn[i] + yn[i - 1]), ns[i]) for i in range(1, len(ns) - 1)),
-        key=lambda x: x[0]
-    )[1]
-
-
 def _best_run_for_config(rows, config_id):
-    """Resolve one grid config to concrete build parameters: the (method, dims)
-    combo with the highest D_composite at that config's own elbow N (envelope
-    of best D_composite per N across all methods/dims). Falls back to the
-    single globally best-scoring row if fewer than 3 N values were tested."""
+    """Resolve one grid config to concrete build parameters: the single
+    (method, dims, N) row with the highest D_composite among all rows tested
+    for that config."""
     sub = [r for r in rows if r["config_id"] == config_id and r["D_composite"] is not None]
     if not sub:
         raise ValueError(f"No results found for {config_id} in {OPTIMIZATION_TSV}")
 
-    by_n = {}
-    for r in sub:
-        if r["N"] not in by_n or r["D_composite"] > by_n[r["N"]]["D_composite"]:
-            by_n[r["N"]] = r
-    ns = sorted(by_n)
-    elbow_n = _elbow(ns, [by_n[n]["D_composite"] for n in ns])
-    target = by_n[elbow_n] if elbow_n is not None else max(sub, key=lambda r: r["D_composite"])
+    target = max(sub, key=lambda r: r["D_composite"])
 
     return {
         "rec_preset": target["rec_preset"], "pep_preset": target["pep_preset"],
         "tm_threshold": target["tm_threshold"], "pool_size": target["pool_size"],
         "sampling_method": target["method"], "dims": target["dims"].split("+"),
         "sample_n": target["N"], "d_composite": target["D_composite"],
-        "elbow_n": elbow_n,
     }
 
 
 def _select_winning_config(rows):
-    """Reproduce the Figure 5 winner-selection rule: among grid configs with a
-    computable elbow that lands before 60% of the pool is exhausted, pick the
-    highest mean D_composite, breaking ties toward stricter presets."""
+    """Reproduce the Figure 5 winner-selection rule: the config with the
+    highest mean D_composite across all its grid rows (method x dims x N,
+    N spanning 0.25-0.75 of that config's own pool), ties broken toward
+    stricter presets."""
     by_cfg = defaultdict(list)
     for r in rows:
         if r["D_composite"] is not None:
@@ -177,27 +154,15 @@ def _select_winning_config(rows):
 
     summary = []
     for cfg_id, sub in by_cfg.items():
-        by_n = {}
-        for r in sub:
-            if r["N"] not in by_n or r["D_composite"] > by_n[r["N"]]["D_composite"]:
-                by_n[r["N"]] = r
-        ns = sorted(by_n)
-        elbow_n = _elbow(ns, [by_n[n]["D_composite"] for n in ns])
-        pool = sub[0]["pool_size"]
         summary.append({
             "config_id": cfg_id,
             "rec_preset": sub[0]["rec_preset"], "pep_preset": sub[0]["pep_preset"],
             "mean_d": sum(r["D_composite"] for r in sub) / len(sub),
-            "elbow_ratio": (elbow_n / pool) if elbow_n is not None else None,
         })
 
-    qualified = [s for s in summary if s["elbow_ratio"] is not None and s["elbow_ratio"] < 0.6]
-    if not qualified:
-        raise ValueError("No grid config qualifies (elbow_ratio < 0.6) in results.tsv.")
-
-    qualified.sort(key=lambda s: (-s["mean_d"], STRICTNESS_RANK[s["rec_preset"]],
-                                   STRICTNESS_RANK[s["pep_preset"]]))
-    return qualified[0]["config_id"]
+    summary.sort(key=lambda s: (-s["mean_d"], STRICTNESS_RANK[s["rec_preset"]],
+                                 STRICTNESS_RANK[s["pep_preset"]]))
+    return summary[0]["config_id"]
 
 
 def _resolve_profile(args):
@@ -225,11 +190,10 @@ def _resolve_profile(args):
         source = "from-config"
 
     best = _best_run_for_config(opt_rows, config_id)
-    elbow_note = f"elbow N={best['elbow_n']}" if best["elbow_n"] is not None else "no elbow — used best-scoring row"
     print(f"  Resolved {config_id} from results.tsv: "
           f"rec={best['rec_preset']} pep={best['pep_preset']} tm={best['tm_threshold']} "
           f"| {best['sampling_method']} {'+'.join(best['dims'])} N={best['sample_n']} "
-          f"(D_composite={best['d_composite']:.3f}, {elbow_note}, pool={best['pool_size']})")
+          f"(D_composite={best['d_composite']:.3f}, pool={best['pool_size']})")
 
     profile = {
         "version":         None,
@@ -450,7 +414,7 @@ def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
         f"(seq receptor {rec_pct:.0f}% [{filt['seq_id_receptor']}], "
         f"peptide {pep_pct:.0f}% [{filt['seq_id_peptide']}], TM-score {tm})",
         f"  Final sample:    {n_sample} entries  ({config['sampling_method']}, "
-        f"elbow N={config['sample_size']})",
+        f"N={config['sample_size']})",
         "",
         "SELECTION CRITERIA",
         "------------------",
@@ -459,7 +423,7 @@ def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
         f"peptide {pep_pct:.0f}% Biopython pairwise ({filt['seq_id_peptide']}).",
         f"Structural redundancy: receptor TM-score < {tm} (different fold).",
         f"Sampling: {config['sampling_method']} in {' x '.join(config['dims'])} space, "
-        f"N chosen at the D_composite-vs-N elbow for this grid config "
+        f"N chosen as the highest-D_composite point for this grid config "
         "(pepxpro_benchmark/optimization/results.tsv).",
         f"Source: PDBbind 2020 + external dataset (summary_merged.tsv), seed={config['seed']}.",
         "",

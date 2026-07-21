@@ -1,8 +1,15 @@
 """
-Step 5: Browse the fixed CIFs of a genSample run in PyMOL.
+Step 5: Browse the fixed CIFs of a genSample run in PyMOL, with named
+peptide/receptor selections.
 
-Chains are coloured with util.cbc.  Navigate with left/right arrow keys.
-Structures are shown in ΔG order (tightest binder first).
+Each structure gets two selections built from its sample.tsv row — "peptide"
+and "receptor" — so that a single chain-agnostic preset works on every entry
+regardless of which literal chain letter happens to be the peptide for that
+PDB ID. The PepXPro preset (white background, cartoon only, gray85 receptor /
+orange peptide) is baked into the loader itself and re-applied on every
+navigation step, since each step deletes and reloads the whole scene.
+Navigate with left/right arrow keys. Structures are shown in ΔG order
+(tightest binder first).
 
 Usage:
   python 03_view_sample.py                          # latest run
@@ -26,7 +33,7 @@ _root   = _here.parent                          # genSample/
 _scrape = _root.parent / "scrape"
 sys.path.insert(0, str(_root))
 
-from modules.utils import load_tsv
+from modules.utils import load_tsv, parse_receptor, parse_peptide
 
 OUTPUTS_DIR  = _root / "outputs"
 FALLBACK_CIF = _scrape / "fixed_cif"
@@ -71,24 +78,69 @@ def find_pymol():
     return "pymol"
 
 
+def chain_selection(chain_str):
+    """'AB' -> 'A+B' (PyMOL multi-chain selection syntax). Empty on bad input."""
+    if not chain_str:
+        return ""
+    return "+".join(list(chain_str))
+
+
 # ── PyMOL script generator ────────────────────────────────────────────────────
 
 _VIEWER_TEMPLATE = """\
 import json
 from pymol import cmd
 
-_data   = __DATA__
-_cifs   = _data["cifs"]
-_labels = _data["labels"]
-_idx    = [0]
+_data     = __DATA__
+_cifs     = _data["cifs"]
+_labels   = _data["labels"]
+_pep_sels = _data["pep_sels"]
+_rec_sels = _data["rec_sels"]
+_idx      = [0]
 
 def _load():
     path   = _cifs[_idx[0]]
     pdb_id = path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
     cmd.delete("all")
     cmd.load(path, pdb_id)
-    cmd.util.cbc()
-    cmd.zoom()
+
+    # Named, chain-agnostic selections: same preset works for every entry
+    # regardless of which literal chain letter is the peptide this time.
+    cmd.delete("peptide")
+    cmd.delete("receptor")
+    pep_sel = _pep_sels[_idx[0]]
+    rec_sel = _rec_sels[_idx[0]]
+    if pep_sel:
+        cmd.select("peptide", "chain %s" % pep_sel)
+    if rec_sel:
+        cmd.select("receptor", "chain %s" % rec_sel)
+    cmd.deselect()
+
+    # PepXPro preset — re-applied on every navigation step, since _load()
+    # deletes and reloads the whole scene each time.
+    cmd.bg_color("white")
+    cmd.hide("everything", "all")
+
+    cmd.show("cartoon", "receptor")
+    cmd.show("cartoon", "peptide")
+
+    cmd.color("gray85", "receptor")
+    cmd.color("orange", "peptide")
+
+    cmd.set("cartoon_fancy_helices", 1)
+    # smoothing off: with short peptides (few CA control points) the loop
+    # spline over-smooths coil into a near-straight line — keep the raw trace.
+    cmd.set("cartoon_smooth_loops", 0)
+    cmd.set("orthoscopic", 1)
+    cmd.set("depth_cue", 0)
+    cmd.set("ray_shadows", 0)
+    cmd.set("ambient", 0.35)
+    cmd.set("specular", 0.20)
+    cmd.set("shininess", 20)
+
+    cmd.orient("all")
+    cmd.zoom("all")
+
     print("[%d/%d]  %s" % (_idx[0] + 1, len(_cifs), _labels[_idx[0]]))
 
 def _next():
@@ -104,14 +156,17 @@ def _prev():
 cmd.set_key("right", _next)
 cmd.set_key("left",  _prev)
 print("  left/right arrows to navigate  (%d structures)" % len(_cifs))
+print("  'peptide' and 'receptor' selections are rebuilt on every navigation step")
 _load()
 """
 
 
-def write_viewer_script(cif_files, labels):
+def write_viewer_script(cif_files, labels, pep_sels, rec_sels):
     data = {
-        "cifs":   [str(p) for p in cif_files],
-        "labels": labels,
+        "cifs":     [str(p) for p in cif_files],
+        "labels":   labels,
+        "pep_sels": pep_sels,
+        "rec_sels": rec_sels,
     }
     content = _VIEWER_TEMPLATE.replace("__DATA__", json.dumps(data))
     tmp = tempfile.NamedTemporaryFile(
@@ -126,7 +181,8 @@ def write_viewer_script(cif_files, labels):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Browse genSample run structures in PyMOL.",
+        description="Browse genSample run structures in PyMOL, with named "
+                     "peptide/receptor selections.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -162,7 +218,7 @@ def main():
             r["_dg"] = 0.0
     rows.sort(key=lambda r: r["_dg"])
 
-    cif_files, labels, missing = [], [], []
+    cif_files, labels, pep_sels, rec_sels, missing = [], [], [], [], []
     for r in rows:
         cif = resolve_cif(r["pdb_id"], run_dir, fallback)
         if cif:
@@ -171,6 +227,17 @@ def main():
             pep = r.get("peptide", "?")
             rec = r.get("receptor", "?")
             labels.append(f"{r['pdb_id']}  dG={dg}  pep={pep}  rec={rec}")
+
+            try:
+                pep_chain, _ = parse_peptide(r.get("peptide", ""))
+            except (ValueError, IndexError):
+                pep_chain = ""
+            try:
+                rec_chain, _ = parse_receptor(r.get("receptor", ""))
+            except (ValueError, IndexError):
+                rec_chain = ""
+            pep_sels.append(chain_selection(pep_chain))
+            rec_sels.append(chain_selection(rec_chain))
         else:
             missing.append(r["pdb_id"])
 
@@ -184,7 +251,7 @@ def main():
         print("No CIF files to display.")
         sys.exit(0)
 
-    script_path = write_viewer_script(cif_files, labels)
+    script_path = write_viewer_script(cif_files, labels, pep_sels, rec_sels)
     pymol_bin   = find_pymol()
 
     import subprocess

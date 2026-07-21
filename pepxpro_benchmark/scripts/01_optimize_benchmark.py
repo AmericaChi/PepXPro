@@ -6,21 +6,32 @@ and sample sizes N to identify the most diverse default benchmark configuration.
 Run this first — 02_make_benchmark.py consumes its output (results.tsv) to
 build the actual versioned release.
 
+Sample sizes N are relative to each config's own post-redundancy pool size P:
+N = round(f * P) for f in 0.25, 0.30, ..., 0.75 (11 points per config), instead
+of a fixed absolute list shared across configs. This guarantees every config
+gets the same number of N points regardless of pool size, and keeps N always
+well inside the pool (max tested N = 0.75P).
+
 Outputs:
   pepxpro_benchmark/optimization/results.tsv
+  pepxpro_benchmark/optimization/baseline_stages.tsv  — D_composite of the quality
+    pool (pre-redundancy, pre-sampling) and of each config's post-redundancy pool
+    (pre-sampling), normalized with the same bounds as results.tsv so the two
+    files are directly comparable (e.g. to see how much redundancy reduction vs.
+    sampling each contribute to the final diversity score).
   pepxpro_benchmark/optimization/plots/diversity_vs_N.png
 
 Usage:
   python 01_optimize_benchmark.py            # 2 example configs (demo)
   python 01_optimize_benchmark.py --full     # all 27 configs
 
-The grid itself (sample sizes, sampling methods, feature-dimension combos,
+The grid itself (N fractions, sampling methods, feature-dimension combos,
 redundancy presets, TM-score cutoffs) and the input summary TSV can all be
 overridden from the command line without editing this file, e.g.:
 
   python 01_optimize_benchmark.py --full \\
       --summary-tsv my_summary.tsv \\
-      --n-values 50,100,200 \\
+      --n-fractions 0.3,0.5,0.7 \\
       --methods stratified,kennard-stone \\
       --tm-thresholds 0.5,0.9 \\
       --rec-presets strict,medium \\
@@ -55,7 +66,15 @@ from modules.sampling    import run_sampling, DIM_KEYS
 # Parameter space
 # ---------------------------------------------------------------------------
 
-N_VALUES = [50, 75, 100, 150, 200, 300, 500]
+# Sample sizes N are relative to each config's own pool size: N = round(f * P).
+N_FRACTIONS = [round(0.25 + 0.05 * i, 2) for i in range(11)]  # 0.25 .. 0.75
+
+
+def n_values_for_pool(pool_size, fractions=N_FRACTIONS):
+    """Sample sizes N for a pool of this size, as round(f * pool_size) for
+    each fraction. Deduplicated and sorted (small pools can round-collide)."""
+    return sorted({round(f * pool_size) for f in fractions})
+
 
 METHODS = ["stratified", "kennard-stone", "kde", "cluster"]
 
@@ -105,6 +124,12 @@ RESULT_COLS = (["config_id", "row_id", "label", "config_name", "rec_preset", "pe
                 "tm_threshold", "pool_size", "method", "dims_id", "dims", "N"]
                + METRIC_COLS + ["D_composite"])
 
+# baseline_stages.tsv: pre-redundancy / pre-sampling reference points, scored with
+# the exact same normalization bounds as results.tsv (see _composite_bounds) so
+# D_composite is directly comparable across the two files.
+BASELINE_COLS = (["config_id", "stage", "rec_preset", "pep_preset", "tm_threshold",
+                  "ref_pool_size", "n"] + METRIC_COLS + ["D_composite"])
+
 
 def all_configs(rec_presets=("strict", "medium", "lenient"),
                 pep_presets=("strict", "medium", "lenient"),
@@ -127,10 +152,6 @@ def all_configs(rec_presets=("strict", "medium", "lenient"),
 
 def _parse_str_list(s):
     return [x.strip() for x in s.split(",") if x.strip()]
-
-
-def _parse_int_list(s):
-    return [int(x) for x in _parse_str_list(s)]
 
 
 def _parse_float_list(s):
@@ -344,12 +365,25 @@ def compute_metrics(sample, pool, pool_cl, tm_mat, tm_idx, aligner):
 # Composite score
 # ---------------------------------------------------------------------------
 
-def add_composite(results):
+def _composite_bounds(results):
+    """Per-metric (lo, hi) used to min-max normalize D_composite. Computed once
+    from the grid search rows so that any other row scored with these same
+    bounds (e.g. the pre-redundancy / pre-sampling baseline stages) lands on
+    an identical scale and is directly comparable to results.tsv."""
+    bounds = {}
     for m in METRIC_COLS:
         vals = [r[m] for r in results if r.get(m) is not None]
         if not vals: continue
         lo, hi = min(vals), max(vals)
-        span = hi - lo if hi != lo else 1.0
+        bounds[m] = (lo, hi if hi != lo else lo + 1.0)
+    return bounds
+
+
+def apply_composite(results, bounds):
+    for m in METRIC_COLS:
+        if m not in bounds: continue
+        lo, hi = bounds[m]
+        span = hi - lo
         for r in results:
             v = r.get(m)
             if v is None:
@@ -362,21 +396,14 @@ def add_composite(results):
         r["D_composite"] = sum(norms) / len(norms) if norms else None
 
 
-# ---------------------------------------------------------------------------
-# Summary and elbow
-# ---------------------------------------------------------------------------
+def add_composite(results):
+    """Normalize D_composite using bounds derived from `results` itself."""
+    apply_composite(results, _composite_bounds(results))
 
-def _elbow(ns, ds):
-    if len(ns) < 3: return None
-    nr = max(ns) - min(ns); dr = max(ds) - min(ds)
-    if nr == 0 or dr == 0: return None
-    xn = [(n - min(ns)) / nr for n in ns]
-    yn = [(d - min(ds)) / dr for d in ds]
-    return max(
-        ((abs(yn[i+1] - 2*yn[i] + yn[i-1]), ns[i]) for i in range(1, len(ns)-1)),
-        key=lambda x: x[0]
-    )[1]
 
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
 
 def print_summary(results, configs):
     print(f"\n{'='*72}")
@@ -395,25 +422,6 @@ def print_summary(results, configs):
             print(f"  {r['method']:<16} {r['dims_id']:>4} {r['N']:>5}  "
                   f"{r['D_composite']:.3f}   {r['M1_mnnd']:.3f}    "
                   f"{r['M5_pep_div']:.3f}   {tm}")
-
-    print(f"\n{'='*72}")
-    print("ELBOW  (D_composite vs N — best dims per method)")
-    print(f"{'='*72}")
-    for cfg in configs:
-        for method in METHODS:
-            # Best dims per N
-            by_n = {}
-            for r in results:
-                if r["config_name"] != cfg["name"] or r["method"] != method: continue
-                if r["D_composite"] is None: continue
-                N = r["N"]
-                if N not in by_n or r["D_composite"] > by_n[N]["D_composite"]:
-                    by_n[N] = r
-            if len(by_n) < 3: continue
-            ns = sorted(by_n); ds = [by_n[n]["D_composite"] for n in ns]
-            e = _elbow(ns, ds)
-            if e:
-                print(f"  {cfg['name']:<22} {method:<16} → elbow N ≈ {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -527,8 +535,10 @@ def main():
     parser.add_argument("--summary-tsv", metavar="PATH", default="summary_merged.tsv",
                         help="Input summary TSV (default: summary_merged.tsv). Relative "
                              "paths are resolved against scrape/outputs/.")
-    parser.add_argument("--n-values", metavar="N1,N2,...", default="50,75,100,150,200,300,500",
-                        help="Comma-separated sample sizes N to grid-search.")
+    parser.add_argument("--n-fractions", metavar="F1,F2,...",
+                        default=",".join(str(f) for f in N_FRACTIONS),
+                        help="Comma-separated sample sizes N as a fraction of each "
+                             "config's own pool size (default: 0.25-0.75 step 0.05).")
     parser.add_argument("--methods", metavar="M1,M2,...",
                         default="stratified,kennard-stone,kde,cluster",
                         help="Comma-separated sampling methods (subset of: "
@@ -545,7 +555,7 @@ def main():
                         help="Comma-separated peptide sequence-identity presets.")
     args = parser.parse_args()
 
-    n_values    = _parse_int_list(args.n_values)
+    n_fractions = _parse_float_list(args.n_fractions)
     methods     = _parse_str_list(args.methods)
     dim_combos  = _parse_dims_combos(args.dims_combo)
     tm_thresh   = _parse_float_list(args.tm_thresholds)
@@ -607,6 +617,10 @@ def main():
         tm_mat = np.load(_scrape_out / "tm_score_matrix.npz")["matrix"]
         print(f"TM matrix:       {len(tm_idx)} entries\n")
 
+    # Clusters of the quality pool itself — reference for the pre-redundancy /
+    # pre-sampling baseline stages (see baseline_stages.tsv below).
+    pc_quality = _pool_clusters(pool_quality, tm_mat, tm_idx)
+
     # Build redundancy pools
     print(f"Building {len(configs)} pool(s)...")
     pools, pool_cl = {}, {}
@@ -617,14 +631,13 @@ def main():
         pool_cl[cfg["name"]] = _pool_clusters(pool, tm_mat, tm_idx)
         print(f"  → pool: {len(pool)} entries")
 
-    # Grid search
+    # Grid search — N is relative to each config's own pool size (0.25P-0.75P)
     def _active_combos(pool_size):
         for method in methods:
             dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(dim_combos)
             for dims_id in dim_ids:
-                for N in n_values:
-                    if N <= pool_size:
-                        yield method, dims_id, N
+                for N in n_values_for_pool(pool_size, n_fractions):
+                    yield method, dims_id, N
 
     total = sum(1 for cfg in configs
                 for _ in _active_combos(len(pools[cfg["name"]])))
@@ -634,14 +647,13 @@ def main():
     for cfg in configs:
         pool = pools[cfg["name"]]
         pc   = pool_cl[cfg["name"]]
+        pool_n_values = n_values_for_pool(len(pool), n_fractions)
         for method in methods:
             dim_ids = ["D1"] if method in SINGLE_DIM_METHODS else list(dim_combos)
             for dims_id in dim_ids:
                 dims = dim_combos[dims_id]
                 eff_dims = [dims[0]] if method == "kde" else dims
-                for N in n_values:
-                    if N > len(pool):
-                        continue
+                for N in pool_n_values:
                     t0 = time.time()
                     try:
                         sample = run_sampling(pool, N, method=method,
@@ -668,13 +680,43 @@ def main():
                           f"M1={mets['M1_mnnd']:.3f}  M5={mets['M5_pep_div']:.3f}  "
                           f"M7={tm_str}  ({elapsed:.1f}s)")
 
-    add_composite(results)
+    bounds = _composite_bounds(results)
+    apply_composite(results, bounds)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     with open(OUT_DIR / "results.tsv", "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=RESULT_COLS, delimiter="\t", extrasaction="ignore")
         w.writeheader(); w.writerows(results)
     print(f"\nResults → {OUT_DIR / 'results.tsv'}  ({len(results)} rows)")
+
+    # Pre-redundancy / pre-sampling baseline stages, scored with the same
+    # bounds as the grid above so D_composite is on an identical scale.
+    print("\nBaseline stages (pre-redundancy, pre-sampling)...")
+    baseline_rows = []
+
+    mets_quality = compute_metrics(pool_quality, pool_quality, pc_quality, tm_mat, tm_idx, aligner)
+    baseline_rows.append({
+        "config_id": "-", "stage": "quality", "rec_preset": "-", "pep_preset": "-",
+        "tm_threshold": "-", "ref_pool_size": len(pool_quality), "n": len(pool_quality),
+        **mets_quality,
+    })
+
+    for cfg in configs:
+        pool = pools[cfg["name"]]
+        mets_redund = compute_metrics(pool, pool_quality, pc_quality, tm_mat, tm_idx, aligner)
+        baseline_rows.append({
+            "config_id": f"GC{cfg['id']}", "stage": "redundancy",
+            "rec_preset": cfg["rec"], "pep_preset": cfg["pep"], "tm_threshold": cfg["tm"],
+            "ref_pool_size": len(pool_quality), "n": len(pool),
+            **mets_redund,
+        })
+
+    apply_composite(baseline_rows, bounds)
+
+    with open(OUT_DIR / "baseline_stages.tsv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=BASELINE_COLS, delimiter="\t", extrasaction="ignore")
+        w.writeheader(); w.writerows(baseline_rows)
+    print(f"Baseline  → {OUT_DIR / 'baseline_stages.tsv'}  ({len(baseline_rows)} rows)")
 
     print_summary(results, configs)
     plot_results(results, configs)
