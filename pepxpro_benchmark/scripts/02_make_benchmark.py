@@ -16,17 +16,36 @@ Two ways to pick a configuration:
                           re-run later with different data.
 
   --from-config auto     Derive the configuration live from results.tsv,
-                          reproducing the Figure 5 winner-selection rule:
-                          highest mean D_composite across all grid rows for
-                          that config (N spans 0.25-0.75 of that config's own
-                          pool), ties broken toward stricter presets.
-  --from-config GC11     Target a specific grid config directly, regardless
-                          of whether it "wins" the comparison — e.g. to try
-                          an alternative to the adopted default.
+                          reproducing the Figure 5 hierarchical selection rule
+                          (see reports/methods.tex):
 
-  In both --from-config modes, the method/dims/N for the chosen config are
-  picked automatically: the single (method, dims, N) row with the highest
-  D_composite among all rows tested for that config.
+                          Step 1 — redundancy config: whole-pool diversity
+                          (both plain pairwise averages and local-redundancy
+                          metrics like nearest-neighbor distance) was shown to
+                          just re-encode pool size, not an independent
+                          diversity signal, so the config is NOT picked by
+                          D_composite at all. Instead: the most stringent
+                          (receptor, peptide, TM-score) combination whose pool
+                          retains at least N_MIN_POOL entries, ties broken by
+                          the larger margin above that floor.
+
+                          Step 2 — method + feature space: within that fixed
+                          pool, the (method, dims) combination with the
+                          highest mean D_composite across its own N curve,
+                          renormalized with bounds local to this config only
+                          (not the global grid bounds) to avoid cross-config
+                          leakage.
+
+                          Step 3 — sample size N: on the winning curve, the
+                          largest N whose D_composite is within N_TOLERANCE of
+                          that curve's own peak — not the raw maximum, which
+                          collapses to the smallest N in the range due to the
+                          mechanical M1_mnnd-vs-N artifact (see methods.tex).
+
+  --from-config GC11     Target a specific grid config directly, regardless
+                          of whether it "wins" Step 1 — e.g. to try an
+                          alternative to the adopted default. Steps 2-3 still
+                          apply to pick its method/dims/N.
 
 Usage:
   python 02_make_benchmark.py --profile GC2                 # frozen v1 release
@@ -78,10 +97,11 @@ PROFILES = {
         "tm_score":        0.7,
         "sampling_method": "kennard-stone",
         "dims":            ["dg", "pep_len", "rec_len", "n_contacts"],  # D2
-        "sample_n":        75,         # N=75, selected under the original elbow-based
-                                        # rule used for the published v1 release (kept
-                                        # frozen here for citation-safety even though
-                                        # the live --from-config auto rule has changed)
+        "sample_n":        82,         # N=82, selected by the Step 3 tolerance rule
+                                        # (largest N within 2% of the peak D_composite
+                                        # on the winning kennard-stone/D2 curve for GC2;
+                                        # see reports/methods.tex). Frozen here for
+                                        # citation-safety independent of results.tsv.
         "seed":            42,
     },
 }
@@ -98,7 +118,24 @@ POOL_COLS = ["pdb_id", "receptor", "peptide", "dG_kcal_mol", "binding_type",
 # ─────────────────────────────────────────────────────────────────────────────
 
 OPTIMIZATION_TSV = _bench_root / "optimization" / "results.tsv"
+BASELINE_TSV     = _bench_root / "optimization" / "baseline_stages.tsv"
 STRICTNESS_RANK  = {"strict": 0, "medium": 1, "lenient": 2}
+TM_SEVERITY_RANK = {0.5: 0, 0.7: 1, 0.9: 2}
+
+# Must match METRIC_COLS / LOWER_IS_BETTER in 01_optimize_benchmark.py exactly —
+# results.tsv carries these raw metric columns alongside the pre-computed
+# (globally-normalized) D_composite column.
+METRIC_COLS = ["M1_mnnd", "M2_mpd", "M3_cov", "M4_cv_nnd",
+               "M5_pep_div", "M6_rec_div", "M7_tm_div", "M8_struct_cov",
+               "M9_wass", "M10_redund"]
+LOWER_IS_BETTER = {"M4_cv_nnd", "M9_wass", "M10_redund"}
+
+# Step 1: minimum pool size a redundancy config must retain to be eligible.
+N_MIN_POOL = 100
+# Step 3: N is the largest sample size within this fraction of the winning
+# curve's peak D_composite (avoids the raw-maximum collapsing to the
+# smallest N tested, an artifact of M1_mnnd's mechanical N-dependence).
+N_TOLERANCE = 0.02
 
 
 def _invoked_command():
@@ -119,50 +156,118 @@ def _load_optimization_results():
         r["N"] = int(r["N"])
         r["pool_size"] = int(r["pool_size"])
         r["tm_threshold"] = float(r["tm_threshold"])
-        d = r.get("D_composite")
-        r["D_composite"] = float(d) if d not in ("", "None", None) else None
+        for m in METRIC_COLS + ["D_composite"]:
+            v = r.get(m)
+            r[m] = float(v) if v not in ("", "None", None) else None
     return rows
 
 
-def _best_run_for_config(rows, config_id):
-    """Resolve one grid config to concrete build parameters: the single
-    (method, dims, N) row with the highest D_composite among all rows tested
-    for that config."""
-    sub = [r for r in rows if r["config_id"] == config_id and r["D_composite"] is not None]
+def _load_baseline_stages():
+    """Loads baseline_stages.tsv's "redundancy" stage rows: whole-pool
+    diversity + pool size for all 27 configs, computed directly on each
+    config's pool with no sampling. This -- not results.tsv -- is what Step 1
+    needs, and it stays complete for all 27 configs even when results.tsv
+    itself only holds the winning config's grid (01_optimize_benchmark.py's
+    default, non---full-diagnostic mode only grid-searches the Step-1
+    winner; see its module docstring)."""
+    if not BASELINE_TSV.exists():
+        return None
+    with open(BASELINE_TSV) as fh:
+        rows = list(csv.DictReader(fh, delimiter="\t"))
+    rows = [r for r in rows if r["stage"] == "redundancy"]
+    for r in rows:
+        r["n"] = int(r["n"])
+        r["tm_threshold"] = float(r["tm_threshold"])
+    return rows
+
+
+def _select_winning_config(baseline_rows, n_min_pool=N_MIN_POOL):
+    """Step 1: fix the redundancy config directly from filter severity + pool
+    size, NOT from D_composite. Both the whole-pool pairwise-average
+    diversity metrics (M5/M6/M7/M10) and local-redundancy metrics (nearest-
+    neighbor distance, percentile distances) were shown to just re-encode
+    pool size across the 27 configs (|Spearman| with pool_size up to 0.96),
+    not an independent diversity signal -- see reports/methods.tex. Selects
+    the most stringent (receptor, peptide, TM-score) combination whose pool
+    retains at least n_min_pool entries, ties broken by the larger margin
+    above that floor (i.e. the larger pool).
+
+    Operates on baseline_stages.tsv's "redundancy" rows (see
+    _load_baseline_stages), NOT on results.tsv -- the grid file may only
+    contain the winning config's rows, so it can't be used to independently
+    re-derive which config should win among all 27."""
+    qualified = [r for r in baseline_rows if r["n"] >= n_min_pool]
+    if not qualified:
+        raise ValueError(f"No config retains >= {n_min_pool} entries in {BASELINE_TSV}")
+
+    def severity(r):
+        return (STRICTNESS_RANK[r["rec_preset"]] + STRICTNESS_RANK[r["pep_preset"]]
+                + TM_SEVERITY_RANK[r["tm_threshold"]])
+
+    qualified.sort(key=lambda r: (severity(r), -r["n"]))
+    return qualified[0]["config_id"]
+
+
+def _local_composite(rows):
+    """Recompute D_composite using min-max bounds derived ONLY from `rows`
+    (e.g. a single config's own grid rows), so Step 2/3 compare candidates
+    without leakage from the global results.tsv bounds (which span all 27
+    configs and would let other configs' extremes distort this comparison)."""
+    bounds = {}
+    for m in METRIC_COLS:
+        vals = [r[m] for r in rows if r.get(m) is not None]
+        if not vals:
+            continue
+        lo, hi = min(vals), max(vals)
+        bounds[m] = (lo, hi if hi != lo else lo + 1.0)
+
+    out = []
+    for r in rows:
+        norms = []
+        for m in METRIC_COLS:
+            if m not in bounds or r.get(m) is None:
+                continue
+            lo, hi = bounds[m]
+            norm = (r[m] - lo) / (hi - lo)
+            norms.append((1 - norm) if m in LOWER_IS_BETTER else norm)
+        out.append({**r, "D_local": sum(norms) / len(norms) if norms else None})
+    return out
+
+
+def _best_run_for_config(rows, config_id, tolerance=N_TOLERANCE):
+    """Steps 2-3, within one fixed config (from Step 1):
+
+    Step 2 picks the (method, dims) combination with the highest mean
+    D_local (bounds local to this config) across its own N curve.
+
+    Step 3 picks the largest N on that winning curve whose D_local is within
+    `tolerance` of that curve's own peak -- not the raw maximum, which
+    collapses to the smallest N tested due to M1_mnnd's mechanical N-
+    dependence (see reports/methods.tex)."""
+    sub = [r for r in rows if r["config_id"] == config_id]
     if not sub:
         raise ValueError(f"No results found for {config_id} in {OPTIMIZATION_TSV}")
 
-    target = max(sub, key=lambda r: r["D_composite"])
+    sub = [r for r in _local_composite(sub) if r["D_local"] is not None]
+
+    by_md = defaultdict(list)
+    for r in sub:
+        by_md[(r["method"], r["dims_id"])].append(r)
+
+    means = {k: sum(r["D_local"] for r in v) / len(v) for k, v in by_md.items()}
+    best_method, best_dims = max(means, key=means.get)
+
+    curve = by_md[(best_method, best_dims)]
+    d_max = max(r["D_local"] for r in curve)
+    qualifying = [r for r in curve if r["D_local"] >= (1 - tolerance) * d_max]
+    target = max(qualifying, key=lambda r: r["N"])
 
     return {
         "rec_preset": target["rec_preset"], "pep_preset": target["pep_preset"],
         "tm_threshold": target["tm_threshold"], "pool_size": target["pool_size"],
         "sampling_method": target["method"], "dims": target["dims"].split("+"),
-        "sample_n": target["N"], "d_composite": target["D_composite"],
+        "sample_n": target["N"], "d_composite": target["D_local"],
     }
-
-
-def _select_winning_config(rows):
-    """Reproduce the Figure 5 winner-selection rule: the config with the
-    highest mean D_composite across all its grid rows (method x dims x N,
-    N spanning 0.25-0.75 of that config's own pool), ties broken toward
-    stricter presets."""
-    by_cfg = defaultdict(list)
-    for r in rows:
-        if r["D_composite"] is not None:
-            by_cfg[r["config_id"]].append(r)
-
-    summary = []
-    for cfg_id, sub in by_cfg.items():
-        summary.append({
-            "config_id": cfg_id,
-            "rec_preset": sub[0]["rec_preset"], "pep_preset": sub[0]["pep_preset"],
-            "mean_d": sum(r["D_composite"] for r in sub) / len(sub),
-        })
-
-    summary.sort(key=lambda s: (-s["mean_d"], STRICTNESS_RANK[s["rec_preset"]],
-                                 STRICTNESS_RANK[s["pep_preset"]]))
-    return summary[0]["config_id"]
 
 
 def _resolve_profile(args):
@@ -183,7 +288,12 @@ def _resolve_profile(args):
         sys.exit(1)
 
     if args.from_config == "auto":
-        config_id = _select_winning_config(opt_rows)
+        baseline_rows = _load_baseline_stages()
+        if baseline_rows is None:
+            print(f"ERROR: {BASELINE_TSV} not found (needed for Step 1).")
+            print("  Run 01_optimize_benchmark.py --full first.")
+            sys.exit(1)
+        config_id = _select_winning_config(baseline_rows)
         source = "auto"
     else:
         config_id = args.from_config
@@ -193,7 +303,7 @@ def _resolve_profile(args):
     print(f"  Resolved {config_id} from results.tsv: "
           f"rec={best['rec_preset']} pep={best['pep_preset']} tm={best['tm_threshold']} "
           f"| {best['sampling_method']} {'+'.join(best['dims'])} N={best['sample_n']} "
-          f"(D_composite={best['d_composite']:.3f}, pool={best['pool_size']})")
+          f"(D_local={best['d_composite']:.3f}, pool={best['pool_size']})")
 
     profile = {
         "version":         None,
@@ -423,8 +533,9 @@ def write_readme(version_dir, n_quality, n_redundancy, n_sample, n_pdb):
         f"peptide {pep_pct:.0f}% Biopython pairwise ({filt['seq_id_peptide']}).",
         f"Structural redundancy: receptor TM-score < {tm} (different fold).",
         f"Sampling: {config['sampling_method']} in {' x '.join(config['dims'])} space, "
-        f"N chosen as the highest-D_composite point for this grid config "
-        "(pepxpro_benchmark/optimization/results.tsv).",
+        f"N chosen as the largest sample size within {N_TOLERANCE*100:.0f}% of the peak "
+        "D_composite on the winning method/feature-space curve for this config "
+        "(pepxpro_benchmark/optimization/results.tsv; see reports/methods.tex).",
         f"Source: PDBbind 2020 + external dataset (summary_merged.tsv), seed={config['seed']}.",
         "",
         "PARAMETERS",

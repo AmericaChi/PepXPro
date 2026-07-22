@@ -12,6 +12,20 @@ of a fixed absolute list shared across configs. This guarantees every config
 gets the same number of N points regardless of pool size, and keeps N always
 well inside the pool (max tested N = 0.75P).
 
+This script only produces the raw grid (results.tsv/baseline_stages.tsv/plot);
+it does not pick a winner. The actual redundancy-config -> method/dims -> N
+selection is a 3-step hierarchical procedure implemented in
+02_make_benchmark.py (see its module docstring and reports/methods.tex):
+whole-pool diversity (both plain pairwise averages and local-redundancy
+metrics like nearest-neighbor distance) was shown to just re-encode pool
+size across the 27 configs, not an independent signal, so Step 1 fixes the
+redundancy config by filter severity + a minimum pool size instead of by
+D_composite. Steps 2-3 (method/dims, then N) do use D_composite, but
+renormalized with bounds local to the winning config only, and Step 3 picks
+the largest N within a small tolerance of the curve's peak rather than the
+raw maximum (which collapses to the smallest N tested, an artifact of
+M1_mnnd's mechanical N-dependence).
+
 Outputs:
   pepxpro_benchmark/optimization/results.tsv
   pepxpro_benchmark/optimization/baseline_stages.tsv  — D_composite of the quality
@@ -90,6 +104,10 @@ SINGLE_DIM_METHODS = {"stratified", "kde"}
 
 SEED = 42
 
+# Step 1 (see 02_make_benchmark.py / reports/methods.tex): minimum pool size a
+# redundancy config must retain to be eligible as the benchmark's default.
+N_MIN_POOL = 100
+
 # Fixed evaluation space for M1–M4 and M9 (always populated)
 EVAL_DIMS = ["dg", "pep_len", "rec_len"]
 EVAL_KEYS = [DIM_KEYS[d] for d in EVAL_DIMS]
@@ -122,7 +140,7 @@ def row_label(rec, pep, tm, method, dims_id):
 
 RESULT_COLS = (["config_id", "row_id", "label", "config_name", "rec_preset", "pep_preset",
                 "tm_threshold", "pool_size", "method", "dims_id", "dims", "N"]
-               + METRIC_COLS + ["D_composite"])
+               + METRIC_COLS + ["D_composite", "Diversity_pool"])
 
 # baseline_stages.tsv: pre-redundancy / pre-sampling reference points, scored with
 # the exact same normalization bounds as results.tsv (see _composite_bounds) so
@@ -428,6 +446,109 @@ def print_summary(results, configs):
 # Plot
 # ---------------------------------------------------------------------------
 
+def _local_composite(rows):
+    """Recompute D_composite using min-max bounds derived ONLY from `rows`
+    (e.g. a single config's own grid rows), avoiding cross-config leakage
+    from the global bounds baked into apply_composite()'s D_composite column
+    (which spans all 27 configs). Adds a "D_local" key to each row in place
+    and also returns the list for convenience."""
+    bounds = {}
+    for m in METRIC_COLS:
+        vals = [r[m] for r in rows if r.get(m) is not None]
+        if not vals:
+            continue
+        lo, hi = min(vals), max(vals)
+        bounds[m] = (lo, hi if hi != lo else lo + 1.0)
+
+    for r in rows:
+        norms = []
+        for m in METRIC_COLS:
+            if m not in bounds or r.get(m) is None:
+                continue
+            lo, hi = bounds[m]
+            norm = (r[m] - lo) / (hi - lo)
+            norms.append((1 - norm) if m in LOWER_IS_BETTER else norm)
+        r["D_local"] = sum(norms) / len(norms) if norms else None
+    return rows
+
+
+def _step1_winner(baseline_rows, n_min_pool=N_MIN_POOL):
+    """Step 1: the most stringent (receptor, peptide, TM-score) combination
+    whose non-redundant pool retains at least n_min_pool entries, ties broken
+    by the larger margin above that floor. Operates on baseline_rows'
+    "redundancy" stage (whole-pool diversity + pool size, computed directly
+    on each config's pool with no sampling) -- NOT on the N-grid, and not on
+    D_composite/whole-pool diversity, both shown to just re-encode pool size
+    across the 27 configs (see reports/methods.tex). Lets main() resolve the
+    winning config BEFORE running the expensive N-grid, so that grid only
+    needs to run for one config instead of all of them.
+
+    Returns the winning config_id (e.g. "GC2"), or None if no config
+    qualifies."""
+    strictness_rank  = {"strict": 0, "medium": 1, "lenient": 2}
+    tm_severity_rank = {0.5: 0, 0.7: 1, 0.9: 2}
+
+    qualified = [r for r in baseline_rows
+                 if r["stage"] == "redundancy" and r["n"] >= n_min_pool]
+    if not qualified:
+        return None
+
+    def severity(r):
+        return (strictness_rank[r["rec_preset"]] + strictness_rank[r["pep_preset"]]
+                + tm_severity_rank[r["tm_threshold"]])
+
+    qualified.sort(key=lambda r: (severity(r), -r["n"]))
+    return qualified[0]["config_id"]
+
+
+def _select_winner(results, n_min_pool=N_MIN_POOL, tolerance=0.02):
+    """Same 3-step hierarchical selection as 02_make_benchmark.py's
+    _select_winning_config / _best_run_for_config, duplicated here only to
+    annotate the winning point on this diagnostic plot. 02_make_benchmark.py
+    remains the source of truth for the actual benchmark build; see its
+    module docstring and reports/methods.tex for the full rationale."""
+    strictness_rank  = {"strict": 0, "medium": 1, "lenient": 2}
+    tm_severity_rank = {0.5: 0, 0.7: 1, 0.9: 2}
+
+    by_cfg = {}
+    for r in results:
+        cid = r["config_id"]
+        if cid not in by_cfg:
+            by_cfg[cid] = {"config_id": cid, "config_name": r["config_name"],
+                           "rec_preset": r["rec_preset"], "pep_preset": r["pep_preset"],
+                           "tm_threshold": r["tm_threshold"], "pool_size": r["pool_size"]}
+
+    qualified = [c for c in by_cfg.values() if c["pool_size"] >= n_min_pool]
+    if not qualified:
+        return None
+
+    def severity(c):
+        return (strictness_rank[c["rec_preset"]] + strictness_rank[c["pep_preset"]]
+                + tm_severity_rank[c["tm_threshold"]])
+
+    qualified.sort(key=lambda c: (severity(c), -c["pool_size"]))
+    winner_cfg = qualified[0]
+
+    sub = [r for r in results if r["config_id"] == winner_cfg["config_id"]
+           and r["D_composite"] is not None]
+    sub = _local_composite(sub)
+
+    by_md = {}
+    for r in sub:
+        by_md.setdefault((r["method"], r["dims_id"]), []).append(r)
+
+    means = {k: sum(r["D_local"] for r in v) / len(v) for k, v in by_md.items()}
+    best_method, best_dims = max(means, key=means.get)
+
+    curve = by_md[(best_method, best_dims)]
+    d_max = max(r["D_local"] for r in curve)
+    qualifying = [r for r in curve if r["D_local"] >= (1 - tolerance) * d_max]
+    target = max(qualifying, key=lambda r: r["N"])
+
+    return {"config_name": winner_cfg["config_name"], "method": best_method,
+            "dims_id": best_dims, "N": target["N"], "D_composite": target["D_local"]}
+
+
 def plot_results(results, configs):
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
@@ -463,6 +584,8 @@ def plot_results(results, configs):
         parts = name.split("_")
         return " ".join(_abbr.get(p, p) for p in parts)
 
+    winner = _select_winner(results)
+
     n_cfg = len(configs)
     n_cols = 5
     n_rows = math.ceil(n_cfg / n_cols)
@@ -476,12 +599,20 @@ def plot_results(results, configs):
         sub = [r for r in results if r["config_name"] == cfg["name"]
                and r["D_composite"] is not None]
         pool_n = int(float(str(sub[0]["pool_size"]))) if sub else "?"
+        # Bounds LOCAL to this config only -- each subplot is independently
+        # renormalized, so curve *shapes* within a config are comparable
+        # (which method/dims/N performs best there) but the y-axis is no
+        # longer on a common scale across subplots. That cross-config
+        # comparison was already misleading (D_composite was shown to just
+        # re-encode pool size across the 27 configs; see reports/methods.tex)
+        # so nothing meaningful is lost, and this now matches Figure 5 Panel D.
+        sub = _local_composite(sub)
 
         handles = {}
         for method in METHODS:
             dims_ids = sorted({r["dims_id"] for r in sub if r["method"] == method})
             for dims_id in dims_ids:
-                pts = sorted((r["N"], r["D_composite"]) for r in sub
+                pts = sorted((r["N"], r["D_local"]) for r in sub
                              if r["method"] == method and r["dims_id"] == dims_id)
                 if not pts:
                     continue
@@ -493,8 +624,15 @@ def plot_results(results, configs):
                                  linewidth=1.3, markersize=3.5, alpha=0.9)
                 handles[f"{method} ({dims_id})"] = line
 
-        ax.set_title(f"GC{cfg['id']}  {_short(cfg['name'])}\npool={pool_n}", fontsize=7.5,
-                     fontweight="bold", pad=3)
+        title = f"GC{cfg['id']}  {_short(cfg['name'])}\npool={pool_n}"
+        if winner and cfg["name"] == winner["config_name"]:
+            title += "  (winner)"
+            star = ax.scatter([winner["N"]], [winner["D_composite"]], marker="*",
+                               s=220, color="black", zorder=10, edgecolors="white",
+                               linewidths=0.5)
+            handles[f"winner: {winner['method']} ({winner['dims_id']}) N={winner['N']}"] = star
+
+        ax.set_title(title, fontsize=7.5, fontweight="bold", pad=3)
         ax.set_xlabel("N", fontsize=7)
         ax.set_ylabel(r"$D_{\mathrm{composite}}$" if col == 0 else "", fontsize=7)
         ax.tick_params(labelsize=6.5)
@@ -508,7 +646,8 @@ def plot_results(results, configs):
         r, c = divmod(empty, n_cols)
         axes[r][c].set_visible(False)
 
-    fig.suptitle(r"$D_{\mathrm{composite}}$ vs N — best dims per method per config",
+    fig.suptitle(r"$D_{\mathrm{composite}}$ vs N — best dims per method per config"
+                 " (bounds local to each config; black star = Step-1/2/3 winner)",
                  fontsize=9, fontweight="bold")
     PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     out = PLOTS_DIR / "diversity_vs_N.png"
@@ -529,7 +668,20 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("--full", action="store_true",
-                        help="Run the full redundancy-config grid instead of 2 examples.")
+                        help="Consider the full 27-config redundancy grid instead of 2 "
+                             "examples for Step 1. By default, only the Step-1 winner "
+                             "(see reports/methods.tex) then gets its N x method x dims "
+                             "grid searched -- pass --full-diagnostic to grid-search all "
+                             "27 anyway.")
+    parser.add_argument("--full-diagnostic", action="store_true",
+                        help="Grid-search N x method x dims for ALL configs, not just "
+                             "the Step-1 winner (~27x more runs). Only needed to "
+                             "reproduce the full exploratory comparison across configs "
+                             "(e.g. diversity_vs_N.png with every panel populated, or "
+                             "the robustness check that most configs favor the same "
+                             "method/dims as the winner). The actual benchmark build "
+                             "(02_make_benchmark.py) only ever needs the winning "
+                             "config's grid. Implies --full.")
     parser.add_argument("--plot-only", action="store_true",
                         help="Skip grid search; regenerate plot from existing results.tsv.")
     parser.add_argument("--summary-tsv", metavar="PATH", default="summary_merged.tsv",
@@ -595,6 +747,7 @@ def main():
         plot_results(results, configs)
         return
 
+    args.full = args.full or args.full_diagnostic
     configs = all_configs(rec_presets, pep_presets, tm_thresh) if args.full else EXAMPLE_CONFIGS
 
     print("\nPepXPro benchmark optimization")
@@ -621,7 +774,7 @@ def main():
     # pre-sampling baseline stages (see baseline_stages.tsv below).
     pc_quality = _pool_clusters(pool_quality, tm_mat, tm_idx)
 
-    # Build redundancy pools
+    # Build redundancy pools (cheap -- filtering only, no sampling)
     print(f"Building {len(configs)} pool(s)...")
     pools, pool_cl = {}, {}
     for cfg in configs:
@@ -631,6 +784,56 @@ def main():
         pool_cl[cfg["name"]] = _pool_clusters(pool, tm_mat, tm_idx)
         print(f"  → pool: {len(pool)} entries")
 
+    # Whole-pool baseline metrics (Step 1 candidate data): cheap, one row per
+    # config, computed directly on the pool with no sampling. Computed BEFORE
+    # the expensive N-grid so Step 1 can resolve the winning config first
+    # (see reports/methods.tex) and the grid only needs to run for that one
+    # config, instead of all of them.
+    print("\nBaseline stages (pre-redundancy, pre-sampling)...")
+    baseline_rows = []
+    mets_quality = compute_metrics(pool_quality, pool_quality, pc_quality, tm_mat, tm_idx, aligner)
+    baseline_rows.append({
+        "config_id": "-", "stage": "quality", "rec_preset": "-", "pep_preset": "-",
+        "tm_threshold": "-", "ref_pool_size": len(pool_quality), "n": len(pool_quality),
+        **mets_quality,
+    })
+    for cfg in configs:
+        pool = pools[cfg["name"]]
+        mets_redund = compute_metrics(pool, pool_quality, pc_quality, tm_mat, tm_idx, aligner)
+        baseline_rows.append({
+            "config_id": f"GC{cfg['id']}", "stage": "redundancy",
+            "rec_preset": cfg["rec"], "pep_preset": cfg["pep"], "tm_threshold": cfg["tm"],
+            "ref_pool_size": len(pool_quality), "n": len(pool),
+            **mets_redund,
+        })
+
+    # Step 1's whole-pool diversity, keyed by config_id -- raw (un-normalized)
+    # mean of M5/M6/M7/(1-M10), each already a natural [0,1] fraction so none
+    # needs min-max rescaling to its own tiny range across the 27 configs
+    # (see reports/methods.tex). Reported in results.tsv too (one constant
+    # value per config, repeated across its grid rows) so every number behind
+    # the 3-step methodology lives in one file alongside D_composite.
+    diversity_pool_by_cfg = {
+        r["config_id"]: (r["M5_pep_div"] + r["M6_rec_div"] + r["M7_tm_div"]
+                          + (1 - r["M10_redund"])) / 4
+        for r in baseline_rows if r["stage"] == "redundancy"
+    }
+
+    # Step 1: resolve the winning config now, before the N-grid. Skipped
+    # (grid all configs) for the 2-example demo or --full-diagnostic.
+    if args.full and not args.full_diagnostic:
+        winner_id = _step1_winner(baseline_rows)
+        if winner_id is None:
+            print(f"WARNING: no config retains >= {N_MIN_POOL} entries; "
+                  f"falling back to grid-searching all {len(configs)} configs.")
+            configs_to_grid = configs
+        else:
+            configs_to_grid = [cfg for cfg in configs if f"GC{cfg['id']}" == winner_id]
+            print(f"\nStep 1 winner: {winner_id} — grid-searching only this config "
+                  f"(pass --full-diagnostic to grid-search all {len(configs)} instead).")
+    else:
+        configs_to_grid = configs
+
     # Grid search — N is relative to each config's own pool size (0.25P-0.75P)
     def _active_combos(pool_size):
         for method in methods:
@@ -639,12 +842,12 @@ def main():
                 for N in n_values_for_pool(pool_size, n_fractions):
                     yield method, dims_id, N
 
-    total = sum(1 for cfg in configs
+    total = sum(1 for cfg in configs_to_grid
                 for _ in _active_combos(len(pools[cfg["name"]])))
     print(f"\nGrid search: {total} runs\n" + "-" * 60)
 
     results, n_done = [], 0
-    for cfg in configs:
+    for cfg in configs_to_grid:
         pool = pools[cfg["name"]]
         pc   = pool_cl[cfg["name"]]
         pool_n_values = n_values_for_pool(len(pool), n_fractions)
@@ -670,7 +873,8 @@ def main():
                            "tm_threshold": cfg["tm"], "pool_size": len(pool),
                            "method": method, "dims_id": dims_id,
                            "dims": "+".join(eff_dims), "N": N,
-                           "D_composite": None}
+                           "D_composite": None,
+                           "Diversity_pool": diversity_pool_by_cfg[f"GC{cfg['id']}"]}
                     row.update(mets)
                     results.append(row)
                     elapsed = time.time() - t0
@@ -689,28 +893,11 @@ def main():
         w.writeheader(); w.writerows(results)
     print(f"\nResults → {OUT_DIR / 'results.tsv'}  ({len(results)} rows)")
 
-    # Pre-redundancy / pre-sampling baseline stages, scored with the same
-    # bounds as the grid above so D_composite is on an identical scale.
-    print("\nBaseline stages (pre-redundancy, pre-sampling)...")
-    baseline_rows = []
-
-    mets_quality = compute_metrics(pool_quality, pool_quality, pc_quality, tm_mat, tm_idx, aligner)
-    baseline_rows.append({
-        "config_id": "-", "stage": "quality", "rec_preset": "-", "pep_preset": "-",
-        "tm_threshold": "-", "ref_pool_size": len(pool_quality), "n": len(pool_quality),
-        **mets_quality,
-    })
-
-    for cfg in configs:
-        pool = pools[cfg["name"]]
-        mets_redund = compute_metrics(pool, pool_quality, pc_quality, tm_mat, tm_idx, aligner)
-        baseline_rows.append({
-            "config_id": f"GC{cfg['id']}", "stage": "redundancy",
-            "rec_preset": cfg["rec"], "pep_preset": cfg["pep"], "tm_threshold": cfg["tm"],
-            "ref_pool_size": len(pool_quality), "n": len(pool),
-            **mets_redund,
-        })
-
+    # baseline_rows (whole-pool diversity, all configs) was already computed
+    # above, before the N-grid -- just rescale it with the grid's bounds
+    # (informational only: D_composite here isn't used by Step 1, which
+    # works off the raw M5/M6/M7/M10 values, not this normalized score) and
+    # write it out.
     apply_composite(baseline_rows, bounds)
 
     with open(OUT_DIR / "baseline_stages.tsv", "w", newline="") as fh:
@@ -718,8 +905,8 @@ def main():
         w.writeheader(); w.writerows(baseline_rows)
     print(f"Baseline  → {OUT_DIR / 'baseline_stages.tsv'}  ({len(baseline_rows)} rows)")
 
-    print_summary(results, configs)
-    plot_results(results, configs)
+    print_summary(results, configs_to_grid)
+    plot_results(results, configs_to_grid)
 
 
 if __name__ == "__main__":

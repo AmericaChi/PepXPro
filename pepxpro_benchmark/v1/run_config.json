@@ -1,7 +1,8 @@
 {
   "profile": "GC2",
+  "source": "profile",
   "command": "python 02_make_benchmark.py --profile GC2",
-  "sample_size": 75,
+  "sample_size": 82,
   "pool_size": 165,
   "sampling_method": "kennard-stone-4D",
   "dims": [
@@ -21,7 +22,7 @@
     "summary_tsv": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape/outputs/summary_merged.tsv",
     "fixed_cif_dir": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape/fixed_cif"
   },
-  "generated": "2026-07-10",
+  "generated": "2026-07-21",
   "pca_features": [
     "dg",
     "pep_len",
