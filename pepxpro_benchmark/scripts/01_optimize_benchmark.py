@@ -106,7 +106,7 @@ SEED = 42
 
 # Step 1 (see 02_make_benchmark.py / reports/methods.tex): minimum pool size a
 # redundancy config must retain to be eligible as the benchmark's default.
-N_MIN_POOL = 100
+N_MIN_POOL = 150
 
 # Fixed evaluation space for M1–M4 and M9 (always populated)
 EVAL_DIMS = ["dg", "pep_len", "rec_len"]

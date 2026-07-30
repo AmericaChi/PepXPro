@@ -8,7 +8,7 @@ Output: outputs/peptide_entries.tsv, pdb_cache/<pdb_id>-<N>.cif
 
 Usage:
   python 01_download.py
-  python 01_download.py --index ../inputs/INDEX_general_PL.2020R1.lst
+  python 01_download.py --index ../inputs/INDEX_general_PL.2020
   python 01_download.py -v
 """
 
@@ -23,7 +23,10 @@ sys.path.insert(0, str(_root))
 from modules.download import parse_index, download_entries
 from modules.utils import save_tsv, setup_logging
 
-DEFAULT_INDEX = _root / "inputs" / "INDEX_general_PL.2020"
+# v2020R1 is a strict subset of v2020 (406 entries removed, 0 new, 314 changed
+# binding data/resolution/year -- see PDBbindVersions/ sibling project), so it
+# is the more current and preferred default.
+DEFAULT_INDEX = _root / "inputs" / "INDEX_general_PL.2020R1.lst"
 PDB_CACHE     = _root / "pdb_cache"
 OUTPUTS_DIR   = _root / "outputs"
 LOGS_DIR      = _root / "logs"
@@ -37,7 +40,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Step 1: Parse PDBbind INDEX, compute ΔG, download assembly CIFs.")
     parser.add_argument("--index", default=DEFAULT_INDEX, type=Path,
-                        help="PDBbind index file (default: inputs/INDEX_general_PL.2020).")
+                        help="PDBbind index file (default: inputs/INDEX_general_PL.2020R1.lst).")
     parser.add_argument("--temperature", default=300.0, type=float, metavar="K",
                         help="Fallback temperature in K (default: 300.0).")
     parser.add_argument("--clean", action="store_true",

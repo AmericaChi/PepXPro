@@ -6,7 +6,7 @@ Usage:
   python pepxpro.py scrape --steps filter summary
   python pepxpro.py scrape --force
   python pepxpro.py scrape -v --external-input inputs/external/PEPBI.xlsx
-  python pepxpro.py scrape -v --index scrape/inputs/INDEX_general_PL.2020R1.lst
+  python pepxpro.py scrape -v --index scrape/inputs/INDEX_general_PL.2020
   python pepxpro.py config --print
 """
 
@@ -127,7 +127,7 @@ def run_config(_args):
 
     # ── scrape / download ─────────────────────────────────────────────────────
     section("scrape / 01_download.py")
-    row("index",         "inputs/INDEX_general_PL.2020", "PDBbind index file",          "CLI")
+    row("index",         "inputs/INDEX_general_PL.2020R1.lst", "PDBbind index file",     "CLI")
     row("temperature_K", 300.0,  "fallback when not in index comment field",             "CLI")
     row("n_workers",     _const(DL_PY, "MAX_WORKERS"), "concurrent CIF downloads",        "hardcoded")
 
@@ -203,7 +203,7 @@ def main():
         help=f"Steps to run (default: all standard). Choices: {', '.join(SCRAPE_STEP_CHOICES)}.",
     )
     p_scrape.add_argument("--index", metavar="FILE",
-                          help="PDBbind index file (default: inputs/INDEX_general_PL.2020). "
+                          help="PDBbind index file (default: inputs/INDEX_general_PL.2020R1.lst). "
                                "Passed to 01_download.py.")
     p_scrape.add_argument("--force", action="store_true",
                           help="Force reprocess in filter step (ignore cache).")

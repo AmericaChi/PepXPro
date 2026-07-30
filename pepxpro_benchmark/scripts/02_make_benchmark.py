@@ -97,11 +97,15 @@ PROFILES = {
         "tm_score":        0.7,
         "sampling_method": "kennard-stone",
         "dims":            ["dg", "pep_len", "rec_len", "n_contacts"],  # D2
-        "sample_n":        82,         # N=82, selected by the Step 3 tolerance rule
+        "sample_n":        100,        # N=100, selected by the Step 3 tolerance rule
                                         # (largest N within 2% of the peak D_composite
                                         # on the winning kennard-stone/D2 curve for GC2;
                                         # see reports/methods.tex). Frozen here for
                                         # citation-safety independent of results.tsv.
+                                        # Resolved under PDBbind v2020R1 (pool=167;
+                                        # N_MIN_POOL raised to 150 for Step 1 after
+                                        # v2020R1 made GC1 newly eligible at the
+                                        # original 100-entry floor).
         "seed":            42,
     },
 }
@@ -131,7 +135,7 @@ METRIC_COLS = ["M1_mnnd", "M2_mpd", "M3_cov", "M4_cv_nnd",
 LOWER_IS_BETTER = {"M4_cv_nnd", "M9_wass", "M10_redund"}
 
 # Step 1: minimum pool size a redundancy config must retain to be eligible.
-N_MIN_POOL = 100
+N_MIN_POOL = 150
 # Step 3: N is the largest sample size within this fraction of the winning
 # curve's peak D_composite (avoids the raw-maximum collapsing to the
 # smallest N tested, an artifact of M1_mnnd's mechanical N-dependence).
