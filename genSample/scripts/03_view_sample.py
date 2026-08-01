@@ -125,7 +125,7 @@ def _load():
     cmd.show("cartoon", "peptide")
 
     cmd.color("gray85", "receptor")
-    cmd.color("orange", "peptide")
+    cmd.color("0x44bf70", "peptide")  # green, matching the peptide-length-distribution color (viridis t=0.7)
 
     cmd.set("cartoon_fancy_helices", 1)
     # smoothing off: with short peptides (few CA control points) the loop
@@ -134,9 +134,19 @@ def _load():
     cmd.set("orthoscopic", 1)
     cmd.set("depth_cue", 0)
     cmd.set("ray_shadows", 0)
-    cmd.set("ambient", 0.35)
-    cmd.set("specular", 0.20)
-    cmd.set("shininess", 20)
+    cmd.set("ray_opaque_background", 0)
+
+    cmd.set("ambient", 0.3)
+    cmd.set("direct", 0.8)
+    cmd.set("specular", 0.2)
+    cmd.set("shininess", 10)
+
+    cmd.set("surface_quality", 1)
+    cmd.set("surface_smooth_edges", 1)
+    cmd.set("solvent_radius", 1.4)
+
+    cmd.set("ray_trace_mode", 1)
+    cmd.set("ray_trace_gain", 0.1)
 
     cmd.orient("all")
     cmd.zoom("all")
