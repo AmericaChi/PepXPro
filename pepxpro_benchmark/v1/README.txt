@@ -1,12 +1,12 @@
 PepXPro Benchmark — v1  (profile GC2)
 ==========================================
-Generated : 2026-07-29
+Generated : 2026-08-04
 
 CONTENTS
 --------
-sample.tsv                  100 entries, full metadata (incl. external dataset fields)
-cif/                        100 fixed CIFs (AMBER14-compatible)
-pdb/                        100 PDB conversions
+sample.tsv                  70 entries, full metadata (incl. external dataset fields)
+cif/                        70 fixed CIFs (AMBER14-compatible)
+pdb/                        70 PDB conversions
 sequences/
   peptide_sequences.fasta
   receptor_sequences.fasta
@@ -21,9 +21,9 @@ run_config.json             Full provenance
 PIPELINE
 --------
   Input:           /Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape/outputs/summary_merged.tsv
-  Quality pool:    740 entries  (--single-chain)
-  Redundancy pool: 167 entries  (seq receptor 40% [strict], peptide 70% [strict], TM-score 0.7)
-  Final sample:    100 entries  (kennard-stone-4D, N=100)
+  Quality pool:    696 entries  (--single-chain)
+  Redundancy pool: 155 entries  (seq receptor 40% [strict], peptide 70% [strict], TM-score 0.7)
+  Final sample:    70 entries  (kennard-stone-4D, N=70)
 
 SELECTION CRITERIA
 ------------------
@@ -39,8 +39,8 @@ PARAMETERS
   "profile": "GC2",
   "source": "auto",
   "command": "python 02_make_benchmark.py --from-config auto --version v1",
-  "sample_size": 100,
-  "pool_size": 167,
+  "sample_size": 70,
+  "pool_size": 155,
   "sampling_method": "kennard-stone-4D",
   "dims": [
     "dg",
@@ -59,7 +59,7 @@ PARAMETERS
     "summary_tsv": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape/outputs/summary_merged.tsv",
     "fixed_cif_dir": "/Users/amerikachi/Projects/Claude_projects/PREPPRO/PepXPro/scrape/fixed_cif"
   },
-  "generated": "2026-07-29",
+  "generated": "2026-08-04",
   "pca_features": [
     "dg",
     "pep_len",

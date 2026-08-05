@@ -67,13 +67,15 @@ _here      = Path(__file__).resolve().parent
 _root      = _here.parent
 _gensample = _root.parent / "genSample"
 _scrape_out = _root.parent / "scrape" / "outputs"
+_fixed_cif_dir = _root.parent / "scrape" / "fixed_cif"
 sys.path.insert(0, str(_gensample))
 
 from modules.utils       import load_tsv, enrich_rows
 from modules.filters     import filter_single_chain
 from modules.sequence_redundancy   import (filter_receptor_redundancy,
                                            filter_peptide_redundancy, PRESETS)
-from modules.structural_redundancy import filter_tm_score_receptor_matrix
+from modules.structural_redundancy import (filter_tm_score_receptor_matrix,
+                                           filter_tm_score_receptor)
 from modules.sampling    import run_sampling, DIM_KEYS
 
 # ---------------------------------------------------------------------------
@@ -193,7 +195,12 @@ def build_pool_redundancy(pool_quality, config):
     rows, _ = filter_receptor_redundancy(rows, PRESETS[config["rec"]]["receptor"])
     rows, _ = filter_peptide_redundancy(rows, PRESETS[config["pep"]]["peptide"])
     result = filter_tm_score_receptor_matrix(rows, config["tm"])
-    return result if result is not None else rows
+    if result is None:
+        # Matrix incomplete for this pool (e.g. new entries since the matrix was
+        # built) — fall back to on-the-fly TM-score computation, same as
+        # 02_make_benchmark.py, instead of silently skipping the TM filter.
+        result = filter_tm_score_receptor(rows, config["tm"], _fixed_cif_dir)
+    return result
 
 
 # ---------------------------------------------------------------------------

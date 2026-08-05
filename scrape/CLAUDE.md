@@ -124,6 +124,9 @@ Computes ΔG = RT·ln(Kd/Ki). Rejects covalent complexes. Downloads all assembly
 (shortest protein chain ≤ max(50, n_mer×2) residues). Checks AMBER14 whitelist. Identifies
 receptor chains within 4 Å of peptide. Rejects receptor gaps > 10 residues or covalent
 peptide–receptor continuity. Fills missing residues (PDBFixer). Rejects CA-CA gap > 5 Å.
+Rejects peptides whose final length (observed + PDBFixer-added residues) exceeds
+`MAX_PEPTIDE_LEN_AA` (quality cutoff, applies to both PDBbind and external datasets since
+`04_external.py` reuses this same filter module).
 Extracts sequences, deposited SS (_struct_conf), DSSP SS (mkdssp), receptor description.
 Computes interface contacts (`n_contacts`) and H-bond proxies (`n_hbonds`) from the fixed CIF.
 Caches results — use `--force` to reprocess.
@@ -141,6 +144,7 @@ Computes ss_percentages and ss_class from DSSP string.
 - `PEPTIDE_COPY_THRESHOLD = 0.7` — sequence similarity to exclude peptide copies
 - `CONTACT_CUTOFF_A = 4.5` — heavy-atom contact distance for `n_contacts`
 - `HBOND_CUTOFF_A = 3.5` — N/O/S proximity distance for `n_hbonds`
+- `MAX_PEPTIDE_LEN_AA = 30` — peptide quality cutoff (final length, observed + PDBFixer-added residues)
 - peptide_max_len = `max(50, n_mer × 2)`
 
 ## ΔG formula

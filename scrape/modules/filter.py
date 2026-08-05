@@ -88,6 +88,7 @@ PEPTIDE_COPY_THRESHOLD = 0.7
 CONTACT_CUTOFF_A     = 4.5   # peptide heavy-atom contacts
 HBOND_CUTOFF_A       = 3.5   # N/O/S donor-acceptor proximity proxy
 HBOND_ELEMENTS       = {"N", "O", "S"}
+MAX_PEPTIDE_LEN_AA   = 30    # quality cutoff: peptides longer than this are rejected
 
 
 # ---------------------------------------------------------------------------
@@ -711,6 +712,15 @@ def _check_assembly(pdb_id, cif_path, n_mer, fixed_dir, convert_mse=True, strip_
     residues_added = {cmap.get(k, k): v for k, v in build_result["residues_added"].items()}
     pep_id         = cmap.get(peptide_chain["chain_id"], peptide_chain["chain_id"])
     rec_ids        = [cmap.get(cid, cid) for cid in receptor_chain_ids]
+
+    final_pep_len = len(peptide_chain["residue_names"]) + residues_added.get(pep_id, 0)
+    if final_pep_len > MAX_PEPTIDE_LEN_AA:
+        fixed_cif_path = Path(fixed_dir) / f"{pdb_id}.cif"
+        fixed_cif_path.unlink(missing_ok=True)
+        return dict(accepted=False, reject_reason=(
+            f"Peptide length {final_pep_len} exceeds quality cutoff "
+            f"({MAX_PEPTIDE_LEN_AA} aa)"
+        ))
 
     rec_lengths = {
         cmap.get(c["chain_id"], c["chain_id"]):
