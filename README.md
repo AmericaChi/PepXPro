@@ -1,7 +1,7 @@
 # PepXPro
 
 A modular framework for scraping, generating, and sharing diverse peptide–protein benchmark datasets (structure + affinity) from PDBbind with the option of adding an external dataset (curated by the user).
-PepXPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces user-customizable, reproducible, diversity-aware benchmark sets ready for MD, Docking, AF-monomer benchmark, ML studies, or other potential studies.
+PepXPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces user-customizable, reproducible, representative benchmark sets ready for MD, Docking, AF-monomer benchmark, ML studies, or other potential studies.
 PepXPro also provides a diverse version (v1), curated by the authors, to maximize structural, sequence, and functional diversity within the current dataset.
 
 ---
@@ -17,6 +17,90 @@ PepXPro also provides a diverse version (v1), curated by the authors, to maximiz
 
 ---
 
+## Install
+
+Create and activate the environment:
+
+```bash
+conda create -n pepxpro -c conda-forge python=3.12 \
+    openmm matplotlib seaborn numpy pandas biopython pdbfixer \
+    scipy scikit-learn dssp pymol-open-source ipykernel jupyter openpyxl
+
+conda activate pepxpro
+```
+
+Install the remaining dependencies:
+
+```bash
+conda install -c conda-forge -c bioconda cd-hit
+python -m pip install tmtools
+```
+
+Register the `pepxpro` command — the easiest way to run everything below without typing
+`python pepxpro.py` every time (editable install, always reflects the current source tree):
+
+```bash
+python -m pip install -e .
+```
+
+**Required** — download the DSSP dictionary files (one-time, ~400 MB, takes a few minutes).
+Without these, secondary-structure detection silently returns `"NA"` for every residue instead
+of raising an error, which quietly corrupts anything downstream that depends on it — don't skip
+this step. Run with the environment activated so `$CONDA_PREFIX` resolves correctly:
+
+```bash
+mkdir -p $CONDA_PREFIX/var/cache/libcifpp/
+curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
+curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
+curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
+```
+
+Verify: `ls -lh $CONDA_PREFIX/var/cache/libcifpp/` should show all three files.
+
+---
+
+## Quick start
+
+The simplest possible path: build the PDBbind dataset, then generate a sample from it.
+
+### 1. Build the dataset from PDBbind
+
+```bash
+pepxpro scrape -v
+```
+
+Downloads and curates the PDBbind peptide–protein subset, producing `scrape/outputs/summary.tsv`
+— the curated dataset used by every sampling tool below — plus distribution plots in
+`scrape/outputs/plots/`. First run downloads ~1000 structures and takes a while;
+re-runs are incremental and fast.
+
+### 2. Generate a sample
+
+```bash
+pepxpro genSample gen --sample 20
+```
+
+Filters and samples 20 entries from `scrape/outputs/summary.tsv`, writing to a new
+`genSample/outputs/run_XX/`:
+
+```
+sample.tsv                 Selected entries.
+run_config.json            All parameters used (fully reproducible).
+pool_quality.tsv           Entries after quality filters.
+pool_redundancy.tsv        Entries after redundancy filters.
+```
+
+### 3. (optional) Explore interactively
+
+```bash
+jupyter notebook tutorial/tutorial.ipynb
+```
+
+> Skipped `pip install -e .`? Every `pepxpro ...` command on this page also works as
+> `python pepxpro.py ...` — no functional difference.
+
+---
+
 ## Repository structure
 
 | Directory | Description |
@@ -24,211 +108,85 @@ PepXPro also provides a diverse version (v1), curated by the authors, to maximiz
 | `scrape/` | Download, filter, and prepare CIFs from PDBbind and external sources |
 | `genSample/` | Generate, analyze, and visualize curated dataset subsets |
 | `pepxpro_benchmark/` | Curated, versioned diverse benchmark releases (`v1/`, `v2/`, …) |
-| `ml_benchmark/` | Notebook validating that curation choices affect ΔG prediction quality |
-| `manual/` | User manual and interactive tutorial notebook |
+| `tutorial/` | Interactive pipeline walkthrough and ML benchmark notebooks |
+| `manual/` | User manual (`pepxpro_manual.txt`) |
 
 ---
 
-## Requirements
+## Next steps
 
-Create the environment:
+Everything past the Quick start example. Full flag reference and examples live in
+[`manual/pepxpro_manual.txt`](manual/pepxpro_manual.txt); every command below also accepts `-h`/`--help`.
 
-```bash
-conda create -n pepxpro -c conda-forge python=3.12 \
-    openmm matplotlib seaborn numpy pandas biopython pdbfixer \
-    scipy scikit-learn dssp pymol-open-source ipykernel jupyter openpyxl
-```
-
-Activate the environment:
+**Run individual scrape steps**, or the underlying scripts directly (equivalent to `pepxpro scrape`):
 
 ```bash
-conda activate pepxpro
+pepxpro scrape -v --steps download     # ~1000 CIFs; time depends on bandwidth
+pepxpro scrape -v --steps filter       # incremental cache; re-run is instant
+pepxpro scrape -v --steps summary
+pepxpro scrape -v --steps distributions
+# or, from scrape/scripts/: python 01_download.py / 02_filter.py / 03_summary.py / 05_distributions.py
 ```
 
-Install additional dependencies:
+Useful `scrape` flags: `--index scrape/inputs/INDEX_general_PL.2020` (use the original v2020
+index instead of the default, re-processed v2020R1 — better quality structures, updated
+binding data), `--strip-caps` (recover entries with terminal caps not at the binding
+interface), `--no-convert-mse` (disable MSE→MET, on by default).
+
+**Add an external dataset**, merged with the PDBbind pool into `scrape/outputs/summary_merged.tsv`:
 
 ```bash
-conda install -c conda-forge -c bioconda cd-hit
-python -m pip install tmtools
+pepxpro scrape -v --external-input scrape/inputs/external/PEPBI.xlsx
 ```
 
-After creating the environment, download DSSP dictionary files (one-time).
-Run with the environment activated so `$CONDA_PREFIX` resolves correctly:
-```bash
-mkdir -p $CONDA_PREFIX/var/cache/libcifpp/
-curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_pdbx.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_pdbx_v50.dic
-curl -o $CONDA_PREFIX/var/cache/libcifpp/mmcif_ma.dic https://mmcif.wwpdb.org/dictionaries/ascii/mmcif_ma.dic
-curl -o $CONDA_PREFIX/var/cache/libcifpp/components.cif https://files.wwpdb.org/pub/pdb/data/monomers/components.cif
-```
-Note: `components.cif` is ~400 MB — the last download takes a few minutes.
-To verify the files downloaded correctly: `ls -lh $CONDA_PREFIX/var/cache/libcifpp/`
-
----
-
-## Quick start
-
-Activate the environment:
+**Precompute the TM-score matrix** — speeds up `genSample gen --tm-score-receptor`, reused by
+every future run (one-time, ~48 min for ~700 entries on 10 cores; ~2.7 MB output file):
 
 ```bash
-conda activate pepxpro
+pepxpro scrape -v --steps tm_matrix
 ```
 
-### 1. Build the dataset from PDBbind
-
-Use the top-level runner from the project root:
+**Other `genSample` subcommands:**
 
 ```bash
-python pepxpro.py scrape -v
+pepxpro genSample methods              # compare the 5 sampling methods (00_plot_samplingMethods.py)
+pepxpro genSample plot --run run_01    # per-run distribution plot (02_plot_sampleDist.py)
+pepxpro genSample view --run 1         # browse structures in PyMOL (03_view_sample.py)
 ```
-This runs steps 01 → 02 → 03 → 05 from scrape module and create `outputs/summary.tsv`, the main PDBbind curated dataset used by the sampling tools. It also produces summary plots showing the distributions of the curated dataset features in `outputs/plots/To `. Use `-h` with any module to view all available parameters and options.
 
-Alternatively, you can run one step at the time:
+**Reproduce the PepXPro Benchmark Release** — for benchmark maintainers, or exact reproduction
+of a citation-safe release. External datasets must be added one at a time, PDBbind first
+(never run two `--external-input` calls in parallel — they dedupe against each other's output):
 
 ```bash
-python pepxpro.py scrape -v --steps download
-python pepxpro.py scrape -v --steps filter
-python pepxpro.py scrape -v --steps summary
-python pepxpro.py scrape -v --steps distributions
+pepxpro scrape -v
+pepxpro scrape -v --external-input scrape/inputs/external/PPIKB/Affinity_Dataset_branch.xlsx --name PPIKB
+pepxpro scrape -v --external-input scrape/inputs/external/PEPBI.xlsx --name PEPBI
 ```
 
-Or,
+This produces `scrape/outputs/summary_merged.tsv` (PDBbind + PPIKB + PEPBI). Precompute the
+TM-score matrix over the full merged pool next — without it, `benchmark optimize --full` falls
+back to computing TM-scores on the fly for all 27 grid configs, which can take hours instead of minutes:
 
 ```bash
-cd scrape/scripts
-python 01_download.py
-python 02_filter.py
-python 03_summary.py
-python 05_distributions.py
+pepxpro scrape -v --steps tm_matrix
 ```
 
-#### OPTIONAL
-
-To use the re-processed v2020R1 index instead (better quality structures, updated binding data) add the flag to step 01:
+Then grid-search and generate the release:
 
 ```bash
---index scrape/inputs/INDEX_general_PL.2020R1.lst
+pepxpro benchmark optimize --full                             # writes optimization/results.tsv
+pepxpro benchmark make --profile GC2                           # frozen v1 release (citation-safe)
+# or: pepxpro benchmark make --from-config auto --version v1   # re-derive the winner live
+# or: pepxpro benchmark make --from-config GC11 --version v2   # try a specific grid config
 ```
 
-To include MSE (selenomethionine) entries by converting them to MET, or to recover entries with terminal capping groups (ACE/NME/NH2) that are not at the binding interface:
-
-```bash
-python pepxpro.py scrape -v --strip-caps          # strip terminal caps not at interface
-python pepxpro.py scrape -v --no-convert-mse      # disable MSE→MET (on by default)
-```
-
-To process an external-dataset and merge with the processed PDBbind dataset, use:
-
-```bash
-python pepxpro.py scrape -v --external-input scrape/inputs/external/PEPBI.xlsx
-```
-
-Where `--external-input` is the path for the desired external dataset. This creates `outputs/summary_merged.tsv`.
-
-To view all default parameters for every pipeline stage:
-
-```bash
-python pepxpro.py config --print
-```
-
-### 2. Generate a sample (CHECK FROM HERE)
-
-Run from genSample/scripts/. Reads from scrape/outputs/. Writes to genSample/outputs/run_XX/.
-
-```bash
-cd ../../genSample/scripts
-
-  python 01_genSample.py --sample 20
-  python 01_genSample.py --dry-run
-  python 00_plot_samplingMethods.py
-  python 02_plot_sampleDist.py --run run_01
-  python 03_view_sample.py --run 1
-
-```
-OUTPUT (genSample/outputs/run_XX/)
-
-------------------------------------
-```bash
-sample.tsv                 Selected entries.
-run_config.json            All parameters used (fully reproducible).
-pool_quality.tsv           Entries after quality filters.
-pool_redundancy.tsv        Entries after redundancy filters.
-peptide_sequences.fasta    (only with --export-fasta)
-receptor_sequences.fasta   (only with --export-fasta)
-cif/  or  pdb/             Structure files (only with --link-cifs / --copy-cifs / --protonate)
-plots/run_comparison.png   (only with 02_plot_sampleDist.py)
-```
-
-### Optional: Explore interactively
-
-```bash
-jupyter notebook tutorial/tutorial.ipynb
-```
-
----
-
-## Performance reference
-
-Approximate runtimes on first run (~478 accepted entries from PDBbind 2020 peptide subset).
-Subsequent runs use the incremental cache and take seconds.
-
-| Step | Command | Time (first run) | Notes |
-|---|---|---|---|
-| 01 download | `pepxpro.py scrape --steps download` | — | Depends on bandwidth (~1000 CIFs) |
-| 02 filter | `pepxpro.py scrape --steps filter` | — | Incremental; re-run is instant |
-| 06 tm_matrix | `pepxpro.py scrape --steps tm_matrix` | ~48 min (706 entries, 10 cores) | One-time; reused by all genSample runs |
-| genSample TM (matrix) | `--tm-score-receptor 0.5` | — | With pre-computed matrix |
-| genSample TM (on-the-fly) | `--tm-score-receptor 0.5` | — | Without matrix |
-
----
-
-## Reproducing the PepXPro Benchmark Release
-
-This step is mainly intended for benchmark maintainers or users who want to reproduce the versioned benchmark release exactly.
-First, build the PDBbind-derived dataset and external-dataset merge in case you didn't do it before:
-
-```bash
-python pepxpro.py scrape -v 
-python pepxpro.py scrape -v --external-input scrape/inputs/external/PEPBI.xlsx
-```
-
-This creates `outputs/summary_merged.tsv`, which is used as the input for the versioned benchmark release.
-
-Then grid-search redundancy/sampling configurations for diversity, and generate the release:
-
-```bash
-cd ../../pepxpro_benchmark/scripts
-
-python 01_optimize_benchmark.py --full           # writes optimization/results.tsv
-python 02_make_benchmark.py --profile GC2        # frozen v1 release (citation-safe)
-# or: python 02_make_benchmark.py --from-config auto --version v1     # re-derive the winner live
-# or: python 02_make_benchmark.py --from-config GC11 --version v2     # try a specific grid config
-```
-
----
-
-## ML Benchmark
-
-`ml_benchmark/notebooks/ml_benchmark.ipynb` demonstrates that PepXPro curation choices
+**ML benchmark** — `tutorial/ml_benchmark.ipynb` demonstrates that PepXPro curation choices
 affect ΔG prediction quality using a Random Forest regressor on 12 structural features.
+Requires the scrape pipeline to have been run first (Quick start, step 1). Open with the
+`pepxpro` Jupyter kernel.
 
-**Prerequisites:** complete the scrape pipeline first (steps 1–3 of Quick start above).
-
-**Two scenarios:**
-
-- **Scenario A — same-model, varied test curation:** random 50/50 split; all strategies train
-  on the same half; the remaining half is curated with each strategy to select N test entries.
-- **Scenario B — partial-helix held out:** the partial-helix entries form a fixed test set (74);
-  each strategy curates the remaining entries for training.
-
-**Six curation strategies per scenario:** Random, Seq-70%+KS 2D/4D/8D/12D, Seq-70%+Rec-40%+KS 12D.
-
-**Metrics:** RMSE, MAE, Pearson r, Spearman ρ (mean ± std over 25 seeds).
-
-Open and run with the `pepxpro` kernel:
-
-```bash
-jupyter notebook ml_benchmark/notebooks/ml_benchmark.ipynb
-```
+**Show every default parameter**: `pepxpro config --print`
 
 ---
 

@@ -20,7 +20,7 @@ python -m pip install tmtools
 ```
 genSample/
 ├── scripts/
-│   ├── 01_genSample.py        # entry point (argparse)
+│   ├── 01_gen_sample.py       # entry point (argparse)
 │   ├── 00_plot_samplingMethods.py
 │   └── 02_plot_sampleDist.py      # per-run distribution comparison plot
 └── modules/
@@ -51,18 +51,21 @@ Each run writes to `genSample/outputs/run_XX/`:
 
 ## Running
 
+Also reachable from the project root via `python pepxpro.py genSample gen ...` (mirrors every
+flag below; see top-level `CLAUDE.md`). Direct invocation:
+
 ```bash
 cd genSample/scripts
 
-python genSample.py --dry-run
-python genSample.py --sample 20
-python genSample.py --sample 20 --sampling kennard-stone --seed 42
-python genSample.py --sample 20 --sampling kde
-python genSample.py --no-sample
-python genSample.py --sample 20 --max-peptide 15 --link-cifs
-python genSample.py --sample 20 --min-dg -15 --max-dg -8 --binding-type kd
-python genSample.py --sample 20 --max-added 3 --max-receptor-added 5
-python genSample.py --sample 20 --exclude bad_ids.txt --copy-cifs
+python 01_gen_sample.py --dry-run
+python 01_gen_sample.py --sample 20
+python 01_gen_sample.py --sample 20 --sampling kennard-stone --seed 42
+python 01_gen_sample.py --sample 20 --sampling kde
+python 01_gen_sample.py --no-sample
+python 01_gen_sample.py --sample 20 --max-peptide 15 --link-cifs
+python 01_gen_sample.py --sample 20 --min-dg -15 --max-dg -8 --binding-type kd
+python 01_gen_sample.py --sample 20 --max-added 3 --max-receptor-added 5
+python 01_gen_sample.py --sample 20 --exclude bad_ids.txt --copy-cifs
 ```
 
 ## Filters available

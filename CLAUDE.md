@@ -19,6 +19,10 @@ PepXPro is a modular framework for generating peptide–protein benchmark datase
   `python scripts/02_make_benchmark.py --from-config auto` (or `--from-config GCn` for a specific
   grid config, or `--profile GC2` for a frozen citation-safe release) to generate the versioned release.
 
+- `tutorial/`
+  `tutorial.ipynb` (pipeline walkthrough) and `ml_benchmark.ipynb` (curation-vs-ΔG-quality
+  demo — writes `tutorial/outputs/`).
+
 - `manual/`
   Comprehensive user manual: `pepxpro_manual.txt`.
 
@@ -33,12 +37,31 @@ PepXPro is a modular framework for generating peptide–protein benchmark datase
 
 ## pepxpro.py — top-level runner
 
+Every module script is directly runnable on its own (e.g. `python genSample/scripts/01_gen_sample.py
+--sample 20`) AND reachable through `pepxpro.py` as a thin dispatcher — each flag on the `pepxpro.py`
+side is a 1:1 mirror of the real script's own argparse (declared with `default=None`, so unset flags
+never override the real script's defaults; only what you actually type gets forwarded).
+
 ```bash
-python pepxpro.py scrape -v                          # full pipeline
-python pepxpro.py scrape -v --strip-caps             # strip terminal caps not at interface
-python pepxpro.py scrape -v --no-convert-mse         # disable MSE→MET (on by default)
-python pepxpro.py config --print                     # show all default parameters
+python pepxpro.py scrape -v                                            # full scrape pipeline
+python pepxpro.py scrape -v --strip-caps                               # strip terminal caps not at interface
+python pepxpro.py scrape -v --no-convert-mse                           # disable MSE→MET (on by default)
+
+python pepxpro.py genSample gen --sample 20 --sampling kennard-stone --seed 42
+python pepxpro.py genSample gen --dry-run
+python pepxpro.py genSample methods --n 20                             # 00_plot_samplingMethods.py
+python pepxpro.py genSample plot --run run_01                          # 02_plot_sampleDist.py
+python pepxpro.py genSample view --run 1                               # 03_view_sample.py
+
+python pepxpro.py benchmark optimize --full                            # 01_optimize_benchmark.py
+python pepxpro.py benchmark make --from-config auto --version v1       # 02_make_benchmark.py
+python pepxpro.py benchmark make --profile GC2                         # frozen citation-safe release
+
+python pepxpro.py config --print                                       # show all default parameters
 ```
+
+After `python -m pip install -e .` (once, inside the `pepxpro` env — see Environment below), the same
+commands work via the bare `pepxpro` entry point, e.g. `pepxpro scrape -v`, `pepxpro genSample gen ...`.
 
 ## Implemented genSample modules
 
@@ -55,14 +78,16 @@ python pepxpro.py config --print                     # show all default paramete
 - Peptide feature analysis (charge, hydrophobicity, aromaticity)
 - Benchmark export with ML-friendly splits
 
-## ML benchmark — ml_benchmark/notebooks/ml_benchmark.ipynb
+## ML benchmark — tutorial/ml_benchmark.ipynb
+
+Lives in `tutorial/` alongside the pipeline walkthrough notebook; writes to `tutorial/outputs/`
+(gitignored). Figures are displayed inline (`plt.show()`), not saved to disk.
 
 **Prerequisites:** the full scrape pipeline must have been run first:
 ```bash
-cd scrape/scripts
-python 01_download.py
-python 02_filter.py   # adds n_contacts and n_hbonds via compute_interface_contacts()
-python 03_summary.py  # produces summary.tsv — the notebook's input
+pepxpro scrape -v --steps download
+pepxpro scrape -v --steps filter   # adds n_contacts and n_hbonds via compute_interface_contacts()
+pepxpro scrape -v --steps summary  # produces summary.tsv — the notebook's input
 ```
 
 Goal: show that PepXPro curation choices affect ΔG prediction quality.
@@ -137,6 +162,15 @@ python -m ipykernel install --user --name pepxpro --display-name "pepxpro"
 
 Note: always use `python -m pip install` (not plain `pip install`) inside the conda
 environment to avoid installing into the system Python.
+
+Optional — registers the bare `pepxpro` command (see "pepxpro.py — top-level runner" above)
+in the env's own `bin/`, editable so it always reflects the current source tree:
+```bash
+python -m pip install -e .
+```
+This works the same whether the env was created with `conda create` or `mamba create` — both
+bundle `pip`, and editable console-script installs are a pip/setuptools mechanism with no
+conda/mamba equivalent (same reason `tmtools` above is pip-only).
 
 After creating the environment, download DSSP dictionary files (one-time).
 Run with the environment activated so `$CONDA_PREFIX` resolves correctly:

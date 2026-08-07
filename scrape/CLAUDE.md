@@ -60,8 +60,9 @@ Each script accepts `--clean` to remove its output files and `-v` for brief prog
 ## Key flags
 
 ### 01_download.py
-- `--index FILE` — PDBbind index file (default: `inputs/INDEX_general_PL.2020`)
-  Use `--index ../inputs/INDEX_general_PL.2020R1.lst` for the re-processed version.
+- `--index FILE` — PDBbind index file (default: `inputs/INDEX_general_PL.2020R1.lst`, the
+  re-processed v2020R1 index). Use `--index ../inputs/INDEX_general_PL.2020` for the
+  original v2020 index instead.
 - `--temperature K` — fallback temperature in K when not in index notes (default: 300.0).
   Temperature is parsed automatically from index comment field when available.
 
