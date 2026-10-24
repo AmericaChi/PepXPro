@@ -2,7 +2,28 @@
 
 A modular framework for scraping, generating, and sharing diverse peptide–protein benchmark datasets (structure + affinity) from PDBbind with the option of adding an external dataset (curated by the user).
 PepXPro downloads and curates peptide–protein co-crystal structures, removes sequence and structural redundancy, and produces user-customizable, reproducible, representative benchmark sets ready for MD, Docking, AF-monomer benchmark, ML studies, or other potential studies.
-PepXPro also provides a diverse version (v1), curated by the authors, to maximize structural, sequence, and functional diversity within the current dataset.
+PepXPro also defines a diverse benchmark release (v1, profile GC2), curated by the authors to maximize structural, sequence, and functional diversity; it can be regenerated exactly from your own PDBbind copy (see [Reproduce the PepXPro Benchmark Release](#next-steps)).
+
+---
+
+## PDBbind data and licensing
+
+**This repository contains only the PepXPro workflow (code, parameters, and documentation). It does
+not include any PDBbind data — neither the raw PDBbind files nor any data derived from them**
+(curated entry tables, binding affinities/ΔG, sequences, processed structures, or benchmark samples).
+The PDBbind+ license does not allow redistributing raw or derived data to third parties without
+written authorization from Fudan University and TopScience.
+
+To use PepXPro you must obtain your own copy of PDBbind under its license terms:
+
+1. Register at [PDBbind+](https://www.pdbbind-plus.org.cn/) and download the general-set index
+   file (v2020R1 `INDEX_general_PL.2020R1.lst`, or the original v2020 `INDEX_general_PL.2020`).
+2. Place it in `scrape/inputs/` (default path: `scrape/inputs/INDEX_general_PL.2020R1.lst`),
+   or point to it with `--index`.
+
+Everything PepXPro generates from it (`scrape/outputs/`, `genSample/outputs/`,
+`pepxpro_benchmark/v*/` tables, sequences, and structures) stays on your machine and is
+git-ignored. Do not commit or redistribute it.
 
 ---
 
@@ -65,6 +86,8 @@ The simplest possible path: build the PDBbind dataset, then generate a sample fr
 
 ### 1. Build the dataset from PDBbind
 
+Requires your own PDBbind index file in `scrape/inputs/` (see [PDBbind data and licensing](#pdbbind-data-and-licensing)).
+
 ```bash
 pepxpro scrape -v
 ```
@@ -107,7 +130,7 @@ jupyter notebook tutorial/tutorial.ipynb
 |---|---|
 | `scrape/` | Download, filter, and prepare CIFs from PDBbind and external sources |
 | `genSample/` | Generate, analyze, and visualize curated dataset subsets |
-| `pepxpro_benchmark/` | Curated, versioned diverse benchmark releases (`v1/`, `v2/`, …) |
+| `pepxpro_benchmark/` | Scripts to regenerate the versioned diverse benchmark releases (`v1/`, `v2/`, …); release data is generated locally, not distributed |
 | `tutorial/` | Interactive pipeline walkthrough and ML benchmark notebooks |
 | `manual/` | User manual (`pepxpro_manual.txt`) |
 

@@ -1,11 +1,20 @@
+# PDBbind licence: raw PDBbind data and any data derived from it may not be
+# redistributed. Users must obtain their own PDBbind copy (see README).
+scrape/inputs/INDEX_general_PL*
+peptide_entries.tsv
+filtered_systems.tsv
+summary.tsv
+summary_merged.tsv
+pool_quality.tsv
+pool_redundancy.tsv
+*.fasta
+pepxpro_benchmark/*/sequences/
+
 # Large generated datasets
 pdb_cache/
 **/fixed_cif/
 **/cif/
 **/pdb/
-# Allow versioned benchmark PDB structures
-!pepxpro_benchmark/**/pdb/
-!pepxpro_benchmark/**/pdb/**
 
 # Logs
 *.log
@@ -23,8 +32,6 @@ build/
 # Generated samples
 **/samples/
 sample.tsv
-# Allow curated benchmark sample.tsv files
-!pepxpro_benchmark/**/sample.tsv
 
 #Claude
 .claude/
