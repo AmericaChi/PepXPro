@@ -18,8 +18,26 @@ To use PepXPro you must obtain your own copy of PDBbind under its license terms:
 
 1. Register at [PDBbind+](https://www.pdbbind-plus.org.cn/) and download the general-set index
    file (v2020R1 `INDEX_general_PL.2020R1.lst`, or the original v2020 `INDEX_general_PL.2020`).
-2. Place it in `scrape/inputs/` (default path: `scrape/inputs/INDEX_general_PL.2020R1.lst`),
-   or point to it with `--index`.
+2. **PepXPro only needs this single index file**, not the rest of the PDBbind download
+   (structures are fetched from RCSB). Extract just that file and copy it into the existing
+   `scrape/inputs/` folder:
+
+   ```
+   PepXPro/
+   └── scrape/
+       └── inputs/
+           ├── INDEX_general_PL.2020R1.lst   ← your PDBbind index file goes here
+           └── external/
+   ```
+
+3. Keep the exact name `INDEX_general_PL.2020R1.lst` — that is the default PepXPro looks for.
+   If your file has a different name or lives elsewhere, pass it explicitly (a relative path is
+   resolved from the directory you run the command in):
+
+   ```bash
+   pepxpro scrape -v --index /path/to/your_index_file
+   pepxpro scrape -v --index scrape/inputs/INDEX_general_PL.2020   # original v2020 index
+   ```
 
 Everything PepXPro generates from it (`scrape/outputs/`, `genSample/outputs/`,
 `pepxpro_benchmark/v*/` tables, sequences, and structures) stays on your machine and is

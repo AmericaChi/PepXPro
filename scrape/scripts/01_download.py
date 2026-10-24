@@ -40,7 +40,8 @@ def main():
     parser = argparse.ArgumentParser(
         description="Step 1: Parse PDBbind INDEX, compute ΔG, download assembly CIFs.")
     parser.add_argument("--index", default=DEFAULT_INDEX, type=Path,
-                        help="PDBbind index file (default: inputs/INDEX_general_PL.2020R1.lst).")
+                        help="PDBbind index file (default: scrape/inputs/INDEX_general_PL.2020R1.lst). "
+                             "Relative paths are resolved from the current directory.")
     parser.add_argument("--temperature", default=300.0, type=float, metavar="K",
                         help="Fallback temperature in K (default: 300.0).")
     parser.add_argument("--clean", action="store_true",
@@ -63,7 +64,13 @@ def main():
 
     index_file = Path(args.index)
     if not index_file.exists():
-        sys.stderr.write(f"Error: index file not found: {index_file}\n")
+        sys.stderr.write(
+            f"Error: PDBbind index file not found: {index_file}\n"
+            f"  PDBbind data is not distributed with PepXPro. Download the index file from\n"
+            f"  PDBbind+ (registration required) and copy it to:\n"
+            f"    {DEFAULT_INDEX}\n"
+            f"  or pass its location with --index FILE.\n"
+            f"  See 'PDBbind data and licensing' in README.md.\n")
         sys.exit(1)
 
     if args.verbose:

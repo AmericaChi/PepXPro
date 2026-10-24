@@ -450,7 +450,7 @@ def run_config(_args):
 
     # ── scrape / download ─────────────────────────────────────────────────────
     section("scrape / 01_download.py")
-    row("index",         "inputs/INDEX_general_PL.2020R1.lst", "PDBbind index file",     "CLI")
+    row("index",         "scrape/inputs/INDEX_general_PL.2020R1.lst", "PDBbind index file", "CLI")
     row("temperature_K", 300.0,  "fallback when not in index comment field",             "CLI")
     row("n_workers",     _const(DL_PY, "MAX_WORKERS"), "concurrent CIF downloads",        "hardcoded")
 
@@ -526,7 +526,8 @@ def main():
         help=f"Steps to run (default: all standard). Choices: {', '.join(SCRAPE_STEP_CHOICES)}.",
     )
     p_scrape.add_argument("--index", metavar="FILE",
-                          help="PDBbind index file (default: inputs/INDEX_general_PL.2020R1.lst). "
+                          help="PDBbind index file (default: scrape/inputs/INDEX_general_PL.2020R1.lst). "
+                               "Relative paths are resolved from the current directory. "
                                "Passed to 01_download.py.")
     p_scrape.add_argument("--force", action="store_true",
                           help="Force reprocess in filter step (ignore cache).")
